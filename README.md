@@ -1,4 +1,4 @@
-##  app-tpm - Esta é uma Aplicação Web em Contêiner com Segurança via TPM.
+#  app-tpm - Esta é uma Aplicação Web em Contêiner com Segurança via TPM.
 
 # Passo 1 
 Habilite o TPM no VirtualBox, caso esteja utilizando virtualização
