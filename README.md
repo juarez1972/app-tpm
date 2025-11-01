@@ -27,7 +27,7 @@ ls -l /dev/tpm*
 Para validar a arquitetura completa, siga este procedimento passo a passo dentro do terminal da sua VM Linux, dentro da pasta com todos os arquivos baixados do git.
 # Preparar o Segredo Lacrado: 
     chmod +x setup_secret.sh
-    ./setup_secret.sh
+    sudo ./setup_secret.sh
     python -m venv venv/
     source venv/bin/activate
     
