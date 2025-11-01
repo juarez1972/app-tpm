@@ -31,6 +31,8 @@ Para validar a arquitetura completa, siga este procedimento passo a passo dentro
     sudo chown -R usuario:usuario sealed.ctx
     python -m venv venv/
     source venv/bin/activate
+# Se der erro quando subir o container precisa apagar a imager e recriar
+    docker system prune
     
 # Construir e Iniciar a Aplicação com Docker Compose: 
  
