@@ -56,3 +56,17 @@ O contêiner será encerrado com um código de erro, demonstrando que a autentic
 # Avançando a Arquitetura: Rumo à Atestação Pronta para Produção:
 Agora vamos testar a arquitetura utilizando o Keylime
 
+# Seal e Unseal do Vault - Anote os valores das chaves 
+docker exec -it -e "VAULT_ADDR=http://127.0.0.1:8200" vault vault operator init   
+docker exec -it -e "VAULT_ADDR=http://127.0.0.1:8200" vault vault operator unseal ***************************************
+docker exec -it -e "VAULT_ADDR=http://127.0.0.1:8200" vault vault operator unseal ***************************************
+docker exec -it -e "VAULT_ADDR=http://127.0.0.1:8200" vault vault operator unseal ***************************************
+
+ # Verificando se o Vault está no ar - página web 
+ http://192.168.56.101:8200 (ou o ip da maquina virtual)
+
+
+
+
+
+
