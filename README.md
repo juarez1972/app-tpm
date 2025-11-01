@@ -28,6 +28,7 @@ Para validar a arquitetura completa, siga este procedimento passo a passo dentro
 # Preparar o Segredo Lacrado: 
     chmod +x setup_secret.sh
     sudo ./setup_secret.sh
+    sudo chown -R usuario:usuario sealed.ctx
     python -m venv venv/
     source venv/bin/activate
     
