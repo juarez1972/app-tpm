@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  vault:
+    # É uma boa prática fixar a versão em vez de usar 'latest'
+    image: hashicorp/vault:latest 
+    container_name: vault
+    ports:
+      - "8200:8200"
+    volumes:
+      # Volume nomeado para persistir os dados do Vault (tokens, secrets, etc.)
+      - vault-data:/vault/file
+      
+      # Monta o arquivo de configuração que criamos
+      - ./config:/vault/config
+      
+      # (Opcional) Mapeia os logs para fora do container
+      # - ./logs:/vault/logs 
+    
+    # "cap_add: - IPC_LOCK" é crucial para produção.
+    # Impede que o processo do Vault seja enviado para a swap (memória em disco),
+    # o que poderia expor chaves de criptografia.
+    cap_add:
+      - IPC_LOCK
+    
+    # O entrypoint do Vault procurará automaticamente por /vault/config/vault.hcl
+    # e executará 'vault server -config=...'
+    command: server
+    
+    restart: unless-stopped
+
+# Define o volume nomeado que será usado para persistência
+volumes:
+  vault-data:
+    driver: local
