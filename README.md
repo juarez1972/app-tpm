@@ -1,4 +1,5 @@
-#  app-tpm - Esta é uma Aplicação Web em Contêiner com Segurança via TPM.
+# APP-TPM 
+# Esta é uma Aplicação Web em Contêiner com Segurança via TPM.
 
 # Passo 1 
 Habilite o TPM no VirtualBox, caso esteja utilizando virtualização
@@ -69,6 +70,7 @@ docker exec -it -e "VAULT_ADDR=http://127.0.0.1:8200" vault vault operator unsea
 
  # Verificando se o Vault está no ar - página web 
  http://192.168.56.101:8200 (ou o ip da maquina virtual)
+
 
 
 
