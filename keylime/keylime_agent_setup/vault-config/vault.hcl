@@ -7,7 +7,7 @@ storage "file" {
 # Configura o listener da API
 listener "tcp" {
   address     = "0.0.0.0:8200" # [9]
-  tls_disable = "true"         # 
+  tls_disable = true           # disable TLS for local testing (boolean)
 }
 
 # Habilita a UI

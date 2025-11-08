@@ -8,12 +8,12 @@ services:
     ports:
       - "8200:8200"
     volumes:
-      # Persistência para dados do Vault
+      # Persistencia para dados do Vault
       - vault_data:/vault/file # [29, 30]
       - vault_logs:/vault/logs
       # Carrega o arquivo de configuração do host
-      -./vault.hcl:/vault/config/local.hcl:ro # [31]
-    # Inicia o servidor com o arquivo de configuração (modo não-dev)
+      - ./vault.hcl:/vault/config/local.hcl:ro # [31]
+    # Inicia o servidor com o arquivo de configuracao (modo não-dev)
     command: "vault server -config=/vault/config/local.hcl" # 
     # CAP_IPC_LOCK é necessário para o Vault travar a memória
     cap_add:
@@ -22,14 +22,14 @@ services:
       - keylime_public_net # Para gerenciamento (opcional)
       - agent-vault-net    # Para unseal pelo agente
     healthcheck:
-      test:
+      test: ["CMD", "vault", "status", "-format=json"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   keylime-agent:
     # Constrói a imagem customizada com curl e jq
-    build:./keylime-agent-custom # [34]
+    build: ./keylime-agent-custom # [34]
     container_name: keylime-agent
     privileged: true # [24]
     # Alternativa mais segura para 'privileged: true':
@@ -39,7 +39,7 @@ services:
       # Persistência para chaves e dados do agente
       - keylime_agent_data:/var/lib/keylime # 
       # Monta a configuração customizada do agente
-      -./agent.conf:/etc/keylime/agent.conf.d/01-custom.conf:ro # [20, 35, 36]
+      - ./agent.conf:/etc/keylime/agent.conf.d/01-custom.conf:ro # [20, 35, 36]
     networks:
       - keylime_public_net # Para falar com Verifier/Registrar
       - agent-vault-net    # Para falar com o Vault

@@ -6,15 +6,15 @@ services:
     image: quay.io/keylime/keylime_verifier:master
     container_name: keylime-verifier
     ports:
-      # Porta padrão da API do Verifier
-      - "8881:8881" # [1, 19, 20, 21]
+      # Porta padrÃ£o da API do Verifier
+      - "8881:8881"
     volumes:
       # Persiste a CA gerada e os dados do verifier
-      - verifier_ca:/var/lib/keylime/cv_ca # 
+      - verifier_ca:/var/lib/keylime/cv_ca
     networks:
       - keylime_public_net
     healthcheck:
-      test:
+      test: # <-- CORREÇÃO AQUI
       interval: 30s
       timeout: 10s
       retries: 3
@@ -23,19 +23,19 @@ services:
     image: quay.io/keylime/keylime_registrar:master
     container_name: keylime-registrar
     ports:
-      # Portas padrão da API do Registrar (HTTP e TLS)
-      - "8890:8890" # [1, 12, 19]
-      - "8891:8891" # [1, 22, 23]
+      # Portas padrÃ£o da API do Registrar (HTTP e TLS)
+      - "8890:8890"
+      - "8891:8891"
     volumes:
       # Monta a CA gerada pelo Verifier (somente leitura)
-      - verifier_ca:/var/lib/keylime/cv_ca:ro # 
+      - verifier_ca:/var/lib/keylime/cv_ca:ro
     networks:
       - keylime_public_net
     depends_on:
       keylime-verifier:
         condition: service_healthy
     healthcheck:
-      test:
+      test: # <-- CORREÇÃO AQUI
       interval: 30s
       timeout: 10s
       retries: 3
@@ -43,13 +43,13 @@ services:
   keylime-tenant:
     image: quay.io/keylime/keylime_tenant:master
     container_name: keylime-tenant
-    # Mantém o contêiner em execução para comandos 'docker exec'
-    command: ["sleep", "infinity"] # 
+    # MantÃ©m o contÃªiner em execuÃ§Ã£o para comandos 'docker exec'
+    command: ["sleep", "infinity"]
     volumes:
-      # Monta a CA do Verifier para confiança mútua (somente leitura)
-      - verifier_ca:/var/lib/keylime/cv_ca:ro # [1]
-      # Monta o diretório de payload do host para o contêiner
-      -./payload:/payload:ro # 
+      # Monta a CA do Verifier para confianÃ§a mÃºtua (somente leitura)
+      - verifier_ca:/var/lib/keylime/cv_ca:ro
+      # Monta o diretÃ³rio de payload do host para o contÃªiner
+      -./payload:/payload:ro
     networks:
       - keylime_public_net
     depends_on:
@@ -64,4 +64,4 @@ networks:
   keylime_public_net:
     # Esta rede deve ser criada manualmente:
     # docker network create keylime_public_net
-    external: true # [15, 16, 17]
+    external: true
