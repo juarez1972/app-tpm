@@ -3,43 +3,43 @@ version: '3.8'
 
 services:
   vault:
-    image: hashicorp/vault:latest # [28]
+    image: hashicorp/vault:latest
     container_name: vault
     ports:
       - "8200:8200"
     volumes:
-      # Persistencia para dados do Vault
-      - vault_data:/vault/file # [29, 30]
+      # Persistência para dados do Vault
+      - vault_data:/vault/file
       - vault_logs:/vault/logs
       # Carrega o arquivo de configuração do host
-      - ./vault.hcl:/vault/config/local.hcl:ro # [31]
-    # Inicia o servidor com o arquivo de configuracao (modo não-dev)
-    command: "vault server -config=/vault/config/local.hcl" # 
+      -./vault-config/vault.hcl:/vault/config/local.hcl:ro
+    # Inicia o servidor com o arquivo de configuração (modo não-dev)
+    command: "vault server -config=/vault/config/local.hcl"
+    # --- CORREÇÃO PARA O VAULT ---
     # CAP_IPC_LOCK é necessário para o Vault travar a memória
     cap_add:
-      - IPC_LOCK # [28, 31, 32, 33]
+      - IPC_LOCK
     networks:
-      - keylime_public_net # Para gerenciamento (opcional)
       - agent-vault-net    # Para unseal pelo agente
     healthcheck:
-      test: ["CMD", "vault", "status", "-format=json"]
+      test: ["vault", "status", "-format=json"] # Um healthcheck mais robusto
       interval: 10s
       timeout: 5s
       retries: 5
 
   keylime-agent:
     # Constrói a imagem customizada com curl e jq
-    build: ./keylime-agent-custom # [34]
+    build:./keylime-agent-custom
     container_name: keylime-agent
-    privileged: true # [24]
-    # Alternativa mais segura para 'privileged: true':
-    # devices:
-    #   - "/dev/tpm0:/dev/tpm0" # [1]
+    # --- CORREÇÃO PARA O AGENTE ---
+    # Passa o dispositivo TPM do host para o contêiner
+    devices:
+      - "/dev/tpm0:/dev/tpm0"
     volumes:
       # Persistência para chaves e dados do agente
-      - keylime_agent_data:/var/lib/keylime # 
+      - keylime_agent_data:/var/lib/keylime
       # Monta a configuração customizada do agente
-      - ./agent.conf:/etc/keylime/agent.conf.d/01-custom.conf:ro # [20, 35, 36]
+      -./keylime-agent-config/agent.conf:/etc/keylime/agent.conf.d/01-custom.conf:ro
     networks:
       - keylime_public_net # Para falar com Verifier/Registrar
       - agent-vault-net    # Para falar com o Vault
@@ -56,4 +56,4 @@ networks:
   agent-vault-net:
     driver: bridge # Rede interna
   keylime_public_net:
-    external: true # Rede compartilhada [16]
+    external: true # Rede compartilhada
