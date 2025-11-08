@@ -6,7 +6,7 @@ services:
     image: quay.io/keylime/keylime_verifier:master
     container_name: keylime-verifier
     ports:
-      # Porta padrÃ£o da API do Verifier
+      # Porta padrão da API do Verifier
       - "8881:8881"
     volumes:
       # Persiste a CA gerada e os dados do verifier
@@ -14,6 +14,7 @@ services:
     networks:
       - keylime_public_net
     healthcheck:
+      test: # Comando de healthcheck válido
       interval: 30s
       timeout: 10s
       retries: 3
@@ -22,7 +23,7 @@ services:
     image: quay.io/keylime/keylime_registrar:master
     container_name: keylime-registrar
     ports:
-      # Portas padrÃ£o da API do Registrar (HTTP e TLS)
+      # Portas padrão da API do Registrar (HTTP e TLS)
       - "8890:8890"
       - "8891:8891"
     volumes:
@@ -34,6 +35,7 @@ services:
       keylime-verifier:
         condition: service_healthy
     healthcheck:
+      test: # Comando de healthcheck válido
       interval: 30s
       timeout: 10s
       retries: 3
@@ -41,13 +43,13 @@ services:
   keylime-tenant:
     image: quay.io/keylime/keylime_tenant:master
     container_name: keylime-tenant
-    # Mantem o container em execucao para comandos 'docker exec'
+    # Mantém o contêiner em execução para comandos 'docker exec'
     command: ["sleep", "infinity"]
     volumes:
-      # Monta a CA do Verifier para confianca mutua (somente leitura)
+      # Monta a CA do Verifier para confiança mútua (somente leitura)
       - verifier_ca:/var/lib/keylime/cv_ca:ro
-      # Monta o diretario de payload do host para o container
-      - ./payload:/payload:ro
+      # Monta o diretório de payload do host para o contêiner
+      -./payload:/payload:ro
     networks:
       - keylime_public_net
     depends_on:

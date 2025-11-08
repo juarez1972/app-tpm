@@ -15,26 +15,24 @@ services:
       -./vault-config/vault.hcl:/vault/config/local.hcl:ro
     # Inicia o servidor com o arquivo de configuração (modo não-dev)
     command: "vault server -config=/vault/config/local.hcl"
-    # --- CORREÇÃO PARA O VAULT ---
     # CAP_IPC_LOCK é necessário para o Vault travar a memória
     cap_add:
       - IPC_LOCK
     networks:
       - agent-vault-net    # Para unseal pelo agente
     healthcheck:
-      test: ["vault", "status", "-format=json"] # Um healthcheck mais robusto
+      test: ["vault", "status", "-format=json"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   keylime-agent:
-    # Constrói a imagem customizada com curl e jq
+    # Constrói a imagem customizada com curl, jq, e permissões 'tss'
     build:./keylime-agent-custom
     container_name: keylime-agent
-    # --- CORREÇÃO PARA O AGENTE ---
-    # Passa o dispositivo TPM do host para o contêiner
+    # Passa o dispositivo TPM resource manager para o contêiner
     devices:
-      - "/dev/tpm0:/dev/tpm0"
+      - "/dev/tpmrm0:/dev/tpmrm0"
     volumes:
       # Persistência para chaves e dados do agente
       - keylime_agent_data:/var/lib/keylime
