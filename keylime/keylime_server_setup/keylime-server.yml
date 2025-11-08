@@ -14,7 +14,7 @@ services:
     networks:
       - keylime_public_net
     healthcheck:
-      test: # <-- CORREÇÃO LÓGICA
+      test: ["CMD-SHELL", "curl -f http://localhost:8881/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -35,7 +35,7 @@ services:
       keylime-verifier:
         condition: service_healthy
     healthcheck:
-      test: # <-- CORREÇÃO LÓGICA
+      test: ["CMD-SHELL", "curl -f http://localhost:8890/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -48,8 +48,8 @@ services:
     volumes:
       # Monta a CA do Verifier para confianÃ§a mÃºtua (somente leitura)
       - verifier_ca:/var/lib/keylime/cv_ca:ro
-      # Monta o diretÃ³rio de payload do host para o contÃªiner
-      -./payload:/payload:ro
+    # Monta o diretÃ³rio de payload do host para o contÃªiner
+      - ./payload:/payload:ro
     networks:
       - keylime_public_net
     depends_on:
