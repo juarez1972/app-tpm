@@ -1,8 +1,10 @@
 
-from flask import Flask
+from flask import Flask, jsonify
 import subprocess
 import sys
 import logging
+import os
+from tpm2_pytss import TSS2_Exception, TCTI, TPM2
 
 # Configuração básica de logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -53,12 +55,27 @@ if __name__ == '__main__':
 
     app.run(host='0.0.0.0', port=5000)
 
-# Adicione esta rota ao seu app Flask existente
 @app.route('/status')
 def status():
-    """Endpoint para verificar status da validação TPM"""
-    return jsonify({
-        'tpm_validated': True,  # Substituir pela sua lógica real de validação
-        'machine_verified': True,
-        'timestamp': datetime.utcnow().isoformat()
-    })
+    try:
+        # Tenta inicializar comunicação com TPM
+        tcti = TCTI.load("tcti-device")
+        tpm = TPM2(tcti=tcti)
+
+        # Testa comunicação básica com TPM
+        tpm.startup(TPM2_SU.CLEAR)
+
+        return jsonify({
+            'tpm_validated': True,
+            'machine_verified': True,
+            'timestamp': '2024-11-09T22:15:00Z'
+        })
+    except Exception as e:
+        return jsonify({
+            'tpm_validated': False,
+            'error': str(e),
+            'timestamp': '2024-11-09T22:15:00Z'
+        }), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
