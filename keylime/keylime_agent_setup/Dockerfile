@@ -1,6 +1,3 @@
-cd ../keylime_agent_setup
-
-cat > Dockerfile << 'EOF'
 FROM fedora:38
 
 RUN dnf update -y -q && \
@@ -16,7 +13,3 @@ WORKDIR /app
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python3 -c "import keylime; print('Agent OK')" || exit 1
-EOF
-
-# Rebuild
-docker-compose build --no-cache

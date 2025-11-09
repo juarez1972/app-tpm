@@ -1,0 +1,24 @@
+FROM fedora:38
+
+# Instalar dependências do sistema
+RUN dnf update -y && \
+    dnf install -y python3-pip python3-devel git gcc openssl-devel openssl python3-gpg sqlite && \
+    dnf clean all
+
+# Criar diretórios necessários
+RUN mkdir -p /var/lib/keylime /etc/keylime
+
+# Copiar requirements
+COPY requirements.txt /tmp/requirements.txt
+
+# Instalar dependências Python
+RUN pip3 install --upgrade pip && \
+    pip3 install -r /tmp/requirements.txt
+
+# Instalar Keylime versão 7.4.0 (mais estável)
+RUN pip3 install keylime==7.4.0
+
+WORKDIR /app
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD python3 -c "import keylime; print('OK')" || exit 1

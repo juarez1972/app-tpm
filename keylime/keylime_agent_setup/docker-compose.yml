@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+
   vault-server:
     image: registry.access.redhat.com/ubi8/ubi:latest
     container_name: vault-server
@@ -9,12 +10,12 @@ services:
     network_mode: host
     command: >
       sh -c "
-        dnf install -y -q wget unzip 2>/dev/null &&
-        wget -q https://releases.hashicorp.com/vault/1.15.0/vault_1.15.0_linux_amd64.zip -O /tmp/vault.zip &&
-        unzip -q /tmp/vault.zip -d /usr/local/bin &&
-        chmod +x /usr/local/bin/vault &&
-        mkdir -p /vault/data &&
-        vault server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
+      dnf install -y -q wget unzip 2>/dev/null &&
+      wget -q https://releases.hashicorp.com/vault/1.15.0/vault_1.15.0_linux_amd64.zip -O /tmp/vault.zip &&
+      unzip -q /tmp/vault.zip -d /usr/local/bin &&
+      chmod +x /usr/local/bin/vault &&
+      mkdir -p /vault/data &&
+      vault server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
       "
 
   keylime-agent:
@@ -30,7 +31,7 @@ services:
       - ./keylime-agent-config/agent.conf:/etc/keylime/agent.conf
     command: >
       sh -c "
-        echo 'Waiting for Vault...' &&
-        sleep 25 &&
-        python3 -m keylime.cmd.agent
+      echo 'Waiting for Vault...' &&
+      sleep 25 &&
+      python3 -m keylime.cmd.agent
       "
