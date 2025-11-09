@@ -1,4 +1,4 @@
-# Dependências CORE do Keylime (oficiais)
+# Dependências CORE do Keylime
 packaging>=21.0
 cryptography>=40.0.0
 tornado>=6.1
@@ -10,7 +10,7 @@ alembic>=1.7.0
 pyasn1>=0.4.8
 pyasn1-modules>=0.2.8
 jsonschema>=4.0.0
-gpg>=1.10.0
+lark>=1.0.0
 
 # Dependências de segurança/TPM
 gnupg>=2.3.0
