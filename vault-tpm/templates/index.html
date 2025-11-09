@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Validação TPM</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .valid { color: green; }
+        .invalid { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Sistema de Validação TPM</h1>
+    {% if validated %}
+        <p class="valid">✅ TPM Validado com Sucesso</p>
+    {% else %}
+        <p class="invalid">❌ Falha na Validação TPM: {{ message }}</p>
+    {% endif %}
+    <p><strong>Mensagem:</strong> {{ message }}</p>
+    
+    <h2>Endpoints:</h2>
+    <ul>
+        <li><a href="/">Página Principal</a></li>
+        <li><a href="/status">Status (JSON)</a></li>
+    </ul>
+</body>
+</html>
