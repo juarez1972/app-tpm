@@ -7,13 +7,15 @@ services:
     hostname: keylime-registrar
     restart: unless-stopped
     network_mode: host
-    command: ["python3", "-m", "keylime.cmd.registrar"]
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import keylime; print('OK')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    volumes:
+      - ./keylime-data:/var/lib/keylime
+      - ./keylime-config:/etc/keylime
+    command: >
+      sh -c "
+        mkdir -p /var/lib/keylime &&
+        echo 'Starting Keylime Registrar with Python 3.9...' &&
+        python3.9 -m keylime.cmd.registrar
+      "
 
   keylime-verifier:
     build: .
@@ -21,17 +23,13 @@ services:
     hostname: keylime-verifier
     restart: unless-stopped
     network_mode: host
-    depends_on:
-      keylime-registrar:
-        condition: service_healthy
+    volumes:
+      - ./keylime-data:/var/lib/keylime
+      - ./keylime-config:/etc/keylime
     command: >
-      sh -c "echo 'Waiting for registrar...' && 
-             sleep 20 && 
-             echo 'Starting verifier...' && 
-             python3 -m keylime.cmd.verifier"
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import keylime; print('OK')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+      sh -c "
+        echo 'Waiting for registrar...' &&
+        sleep 25 &&
+        echo 'Starting Keylime Verifier with Python 3.9...' &&
+        python3.9 -m keylime.cmd.verifier
+      "
