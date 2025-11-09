@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  vault-server:
+    image: registry.access.redhat.com/ubi8/ubi:latest
+    container_name: vault-server
+    hostname: vault-server
+    restart: unless-stopped
+    network_mode: host
+    command: >
+      sh -c "
+        echo 'Installing Vault...' &&
+        dnf install -y -q wget unzip 2>/dev/null &&
+        wget -q https://releases.hashicorp.com/vault/1.15.0/vault_1.15.0_linux_amd64.zip -O /tmp/vault.zip &&
+        unzip -q /tmp/vault.zip -d /usr/local/bin &&
+        chmod +x /usr/local/bin/vault &&
+        mkdir -p /vault/data &&
+        echo 'Starting Vault server...' &&
+        vault server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
+      "
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://localhost:8200"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  keylime-agent:
+    build: .
+    container_name: keylime-agent
+    hostname: keylime-agent
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    depends_on:
+      vault-server:
+        condition: service_healthy
+    command: >
+      sh -c "
+        echo 'Waiting for Vault and Keylime services...' &&
+        sleep 40 &&
+        echo 'Starting Keylime agent...' &&
+        python3 -m keylime.cmd.agent
+      "
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import keylime; print('Agent OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 50s
