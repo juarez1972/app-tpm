@@ -72,52 +72,54 @@ class VaultInitializer:
         return False
 
     def initialize_vault(self):
-        """Inicializa o Vault se necessário"""
-        try:
-            # Verificar se o Vault já está inicializado
-            response = requests.get(f"{self.vault_addr}/v1/sys/health", timeout=10)
+    """Inicializa o Vault se necessário"""
+    try:
+        # Verificar se o Vault já está inicializado
+        response = requests.get(f"{self.vault_addr}/v1/sys/health", timeout=10)
+        
+        # Status 501 = não inicializado, 503 = sealed, 200 = ok
+        if response.status_code == 501:
+            logger.info("Inicializando Vault em modo produção...")
             
-            # Status 501 = não inicializado
-            if response.status_code == 501:
-                logger.info("Inicializando Vault...")
+            init_response = requests.put(
+                f"{self.vault_addr}/v1/sys/init",
+                json={
+                    'secret_shares': 1,
+                    'secret_threshold': 1
+                },
+                timeout=30
+            )
+            
+            if init_response.status_code == 200:
+                init_data = init_response.json()
+                logger.info("Vault inicializado com sucesso!")
                 
-                init_response = requests.put(
-                    f"{self.vault_addr}/v1/sys/init",
-                    json={
-                        'secret_shares': 1,
-                        'secret_threshold': 1
-                    },
-                    timeout=30
-                )
+                # Salvar as chaves de unseal
+                keys = init_data.get('keys_base64', init_data.get('keys', []))
+                root_token = init_data.get('root_token')
                 
-                if init_response.status_code == 200:
-                    init_data = init_response.json()
-                    logger.info("Vault inicializado com sucesso!")
-                    
-                    # Salvar as chaves
-                    keys = init_data.get('keys_base64', init_data.get('keys', []))
-                    root_token = init_data.get('root_token')
-                    
-                    if keys:
-                        with open(self.tpm_data_dir / 'vault-unseal-keys', 'w') as f:
-                            for key in keys:
-                                f.write(f"{key}\n")
-                    
-                    if root_token:
-                        with open(self.tpm_data_dir / 'vault-root-token', 'w') as f:
-                            f.write(root_token)
-                    
-                    return True
-                else:
-                    logger.error(f"Erro na inicialização do Vault: {init_response.text}")
-                    return False
-            else:
-                logger.info("Vault já está inicializado")
+                if keys:
+                    with open(self.tpm_data_dir / 'vault-unseal-keys', 'w') as f:
+                        for key in keys:
+                            f.write(f"{key}\n")
+                    logger.info(f"Salvas {len(keys)} chaves de unseal")
+                
+                if root_token:
+                    with open(self.tpm_data_dir / 'vault-root-token', 'w') as f:
+                        f.write(root_token)
+                    logger.info("Token root salvo")
+                
                 return True
-                
-        except Exception as e:
-            logger.error(f"Erro verificando inicialização do Vault: {e}")
-            return False
+            else:
+                logger.error(f"Erro na inicialização do Vault: {init_response.text}")
+                return False
+        else:
+            logger.info("Vault já está inicializado")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Erro verificando inicialização do Vault: {e}")
+        return False
 
     def unseal_vault(self):
         """Faz o unseal do Vault"""

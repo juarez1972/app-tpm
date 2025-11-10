@@ -18,13 +18,15 @@ services:
     image: vault:1.13.3
     ports:
       - "8200:8200"
-    environment:
-      - VAULT_DEV_ROOT_TOKEN_ID=temp-root-token
+    volumes:
+      - ./vault-data:/vault/data
+      - ./vault-config.hcl:/vault/config/vault-config.hcl
     cap_add:
       - IPC_LOCK
     networks:
       - tpm-vault-network
     restart: unless-stopped
+    command: server -config /vault/config/vault-config.hcl
 
   vault-initializer:
     build: ./vault-init
