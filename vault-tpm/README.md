@@ -73,9 +73,10 @@
         Verificações Regulares:
     
         Status do TPM: curl http://localhost:5000/status
-
         Health do Vault: curl http://localhost:8200/v1/sys/health
-
         Logs do Sistema: docker-compose logs --tail=20
+
+    ⚡ Scripts de testes:
+        system_status.sh e validade_system.sh
 
     
