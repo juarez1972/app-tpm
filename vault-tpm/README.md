@@ -1,5 +1,7 @@
 # Hashicorp Vault em container validado por TPM
-    Esta aplicação foi desenvolvida para proteger um cofre de senhas Hashicorp Vault, que só iniciará após a validação pela TPM do host. Possui ainda uma aplicação web que funciona na porta 5000 com o mesmo objetivo. O Vault funciona na porta 8200 (a criptografia deve ser adicionada antes de ser colocado em produção)
+    Esta aplicação foi desenvolvida para proteger um cofre de senhas Hashicorp Vault, que só iniciará após a validação pela TPM do host. 
+    Possui ainda uma aplicação web que funciona na porta 5000 com o mesmo objetivo. 
+    O Vault funciona na porta 8200 (a criptografia deve ser adicionada antes de ser colocado em produção)
     
     Boot → TPM Validation → Vault Unseal → Sistema Operacional
         ✅           ✅           ✅             ✅
