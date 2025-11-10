@@ -1,7 +1,7 @@
-/backup_20251110_003314/
-/tpm-data/secret
-/tpm-data/vault-root-key
-/vault-data/
-/venv/
+backup_20251110_003314/
+tpm-data/secret
+tpm-data/vault-root-key
+vault-data/
+venv/
 
 
