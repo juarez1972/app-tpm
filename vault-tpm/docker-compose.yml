@@ -15,17 +15,11 @@ services:
     restart: unless-stopped
 
   vault:
-    image: vault:1.13.3  # Tag válida
+    image: vault:1.13.3
     ports:
       - "8200:8200"
     environment:
       - VAULT_DEV_ROOT_TOKEN_ID=temp-root-token
-      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
-      - VAULT_API_ADDR=http://vault:8200
-    volumes:
-      - ./vault-data:/vault/data
-      - ./vault-config.hcl:/vault/config/vault-config.hcl
-      - ./scripts:/vault/scripts
     cap_add:
       - IPC_LOCK
     networks:
@@ -39,9 +33,6 @@ services:
       - VAULT_ADDR=http://vault:8200
     volumes:
       - ./tpm-data:/app/tpm-data
-    depends_on:
-      - tpm-validator
-      - vault
     networks:
       - tpm-vault-network
     restart: unless-stopped
