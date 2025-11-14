@@ -71,6 +71,11 @@ docker exec -it -e "VAULT_ADDR=http://127.0.0.1:8200" vault vault operator unsea
  # Verificando se o Vault está no ar - página web 
  http://192.168.56.101:8200 (ou o ip da maquina virtual)
 
+# Novos Testes a ser realizados:
+  proteger o cliente do twingate no tpm - zerotrust 
+  proteger o cliente do twingate no vault protegido
+  proteger o server com enclave  - por exemplo com OTP
+  testar alguma aplicação em OT, como raspberry
 
 
 
