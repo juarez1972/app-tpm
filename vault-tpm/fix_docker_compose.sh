@@ -1,3 +1,11 @@
+#!/bin/bash
+echo "=== CORREÇÃO DO DOCKER-COMPOSE.YML ==="
+
+# Backup do arquivo atual
+cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d_%H%M%S)
+
+# Criar novo docker-compose.yml corrigido
+cat > docker-compose.yml << 'EOF'
 services:
   tpm-validator:
     build: .
@@ -43,3 +51,22 @@ services:
 networks:
   tpm-vault-network:
     driver: bridge
+EOF
+
+echo "✅ docker-compose.yml corrigido"
+
+# Parar e reiniciar serviços
+echo "Reiniciando serviços..."
+docker-compose down
+docker-compose up -d --build
+
+echo "Aguardando inicialização..."
+sleep 15
+
+echo "Verificando status:"
+docker-compose ps
+
+echo "Testando Vault:"
+curl -s http://localhost:8200/v1/sys/health > /dev/null && echo "✅ Vault ONLINE" || echo "❌ Vault OFFLINE"
+
+echo "=== CORREÇÃO CONCLUÍDA ==="

@@ -1,3 +1,4 @@
+
 services:
   tpm-validator:
     build: .
@@ -18,14 +19,16 @@ services:
       - "8200:8200"
     environment:
       - VAULT_DEV_ROOT_TOKEN_ID=temp-root-token
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
     volumes:
       - ./vault-data:/vault/data
+      - ./vault-config.hcl:/vault/config/vault-config.hcl
     cap_add:
       - IPC_LOCK
     networks:
       - tpm-vault-network
     restart: unless-stopped
-    command: ["vault", "server", "-dev", "-dev-root-token-id=temp-root-token", "-dev-listen-address=0.0.0.0:8200"]
+    command: server -dev -dev-root-token-id=temp-root-token -dev-listen-address=0.0.0.0:8200 -config /vault/config/vault-config.hcl
 
   vault-initializer:
     build: ./vault-init
@@ -37,8 +40,6 @@ services:
     networks:
       - tpm-vault-network
     restart: unless-stopped
-    depends_on:
-      - vault
 
 networks:
   tpm-vault-network:
