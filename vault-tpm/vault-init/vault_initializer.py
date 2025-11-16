@@ -20,6 +20,25 @@ class VaultInitializer:
         self.retry_delay = 5
         self.tpm_data_dir = Path('/app/tpm-data')
 
+    def main():
+        print("Iniciando inicialização do Vault em modo produção...")
+
+        # Verificar se o diretório de destino existe
+        output_dir = "/app/tpm-data"
+        if not os.path.exists(output_dir):
+            print(f"Diretório {output_dir} não existe. Criando...")
+            os.makedirs(output_dir, mode=0o755)
+
+        print(f"Permissões do diretório: {oct(os.stat(output_dir).st_mode)[-3:]}")
+
+        # Testar TPM primeiro
+        tpm = setup_tpm()
+        if not tpm:
+            print("FALHA: Não foi possível inicializar TPM")
+            return
+
+        print("TPM inicializado com sucesso")
+
     def check_port_available(self):
         """Verifica se a porta do Vault está disponível"""
         import socket
@@ -31,6 +50,38 @@ class VaultInitializer:
         except socket.error:
             logger.error("❌ Porta 8200 já está em uso!")
             return False
+
+    # No vault-initializer.py, verificar:
+    def setup_tpm():
+        try:
+            # Em produção, o caminho do TPM pode ser diferente
+            tpm = pytpm.TPM()
+            # Adicionar tratamento mais robusto de erros
+            if not tpm.is_ready():
+                print("TPM não está pronto para operação em produção")
+                return None
+        except Exception as e:
+            print(f"Erro ao acessar TPM: {e}")
+            return None
+
+    # Verificar a função de criptografia no vault-initializer.py
+    def encrypt_with_tpm(data, tpm):
+        try:
+            # Em produção, validar se o TPM está respondendo
+            if tpm is None:
+                print("TPM não disponível para criptografia")
+                return None
+        
+            encrypted_data = tpm.encrypt(data)
+            if not encrypted_data:
+                print("Falha na criptografia com TPM")
+                return None
+            
+            return encrypted_data
+        except Exception as e:
+            print(f"Erro durante criptografia: {e}")
+            return None
+
 
     def get_vault_token(self):
         """Obtém o token do Vault do arquivo vault-root-token"""
