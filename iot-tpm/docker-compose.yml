@@ -1,0 +1,35 @@
+version: "3.8"
+
+services:
+  twingate-iot:
+    build:.
+    container_name: twingate_tpm_connector
+    # Network Mode: Host é recomendado para Conectores e Gateways IoT
+    # permite acesso direto aos recursos da LAN sem NAT duplo 
+    network_mode: host
+    cap_add:
+      - NET_ADMIN     # Obrigatório para criação da interface TUN 
+    devices:
+      - /dev/net/tun:/dev/net/tun   # Interface de Túnel
+      - /dev/tpmrm0:/dev/tpmrm0     # Gerenciador de Recursos TPM
+    environment:
+      # Metadados para identificação no Admin Console [32]
+      - TWINGATE_LABEL_HOSTNAME=${HOSTNAME}
+      - TWINGATE_LABEL_DEPLOYED_BY=docker-tpm-arch
+      - TWINGATE_LOG_LEVEL=info    # Controle de verbosidade [33]
+    volumes:
+      # Montar volume tmpfs para a chave descriptografada. 
+      # Garante que a chave nunca toque o cartão SD.
+      - type: tmpfs
+        target: /run/secrets
+        tmpfs:
+          size: 10M
+      # Persistir estado interno do Twingate (tokens, identidade)
+      # Essencial para manter a identidade do dispositivo entre reinicializações
+      - twingate_data:/var/lib/twingate
+      - twingate_log:/var/log/twingate
+    restart: unless-stopped
+
+volumes:
+  twingate_data:
+  twingate_log:

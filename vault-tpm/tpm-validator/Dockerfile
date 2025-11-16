@@ -6,15 +6,12 @@ WORKDIR /app
 RUN apk add --no-cache \
     tpm2-tools \
     tpm2-tss \
-    tpm2-tss-engine \
-    tpm2-tss-dev \
-    musl-dev \
-    gcc
+    tpm2-tss-engine
 
 # Instalar Python packages
 RUN pip install --upgrade pip
 RUN pip install requests==2.31.0
 
-COPY vault_initializer.py .
+COPY tpm_validator.py .
 
-CMD ["python", "vault_initializer.py"]
+CMD ["python", "tpm_validator.py"]

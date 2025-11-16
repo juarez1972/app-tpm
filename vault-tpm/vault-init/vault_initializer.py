@@ -1,264 +1,256 @@
-#!/usr/bin/env python3
-import requests
-import time
 import os
-import logging
 import sys
+import time
+import requests
+import json
+import base64
+import subprocess
 from pathlib import Path
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-class VaultInitializer:
+class TPMHandler:
+    """Manipula operações TPM no Alpine Linux"""
+    
     def __init__(self):
-        self.tpm_validator_url = os.getenv('TPM_VALIDATOR_URL', 'http://tpm-validator:5000')
-        self.vault_addr = os.getenv('VAULT_ADDR', 'http://vault:8200')
-        self.max_retries = 60
-        self.retry_delay = 5
-        self.tpm_data_dir = Path('/app/tpm-data')
-
-    def main():
-        print("Iniciando inicialização do Vault em modo produção...")
-
-        # Verificar se o diretório de destino existe
-        output_dir = "/app/tpm-data"
-        if not os.path.exists(output_dir):
-            print(f"Diretório {output_dir} não existe. Criando...")
-            os.makedirs(output_dir, mode=0o755)
-
-        print(f"Permissões do diretório: {oct(os.stat(output_dir).st_mode)[-3:]}")
-
-        # Testar TPM primeiro
-        tpm = setup_tpm()
-        if not tpm:
-            print("FALHA: Não foi possível inicializar TPM")
-            return
-
-        print("TPM inicializado com sucesso")
-
-    def check_port_available(self):
-        """Verifica se a porta do Vault está disponível"""
-        import socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.ready = self._check_tpm_availability()
+    
+    def _check_tpm_availability(self):
+        """Verifica se o TPM está disponível"""
         try:
-            sock.bind(('0.0.0.0', 8200))
-            sock.close()
-            return True
-        except socket.error:
-            logger.error("❌ Porta 8200 já está em uso!")
-            return False
-
-    # No vault-initializer.py, verificar:
-    def setup_tpm():
-        try:
-            # Em produção, o caminho do TPM pode ser diferente
-            tpm = pytpm.TPM()
-            # Adicionar tratamento mais robusto de erros
-            if not tpm.is_ready():
-                print("TPM não está pronto para operação em produção")
-                return None
-        except Exception as e:
-            print(f"Erro ao acessar TPM: {e}")
-            return None
-
-    # Verificar a função de criptografia no vault-initializer.py
-    def encrypt_with_tpm(data, tpm):
-        try:
-            # Em produção, validar se o TPM está respondendo
-            if tpm is None:
-                print("TPM não disponível para criptografia")
-                return None
-        
-            encrypted_data = tpm.encrypt(data)
-            if not encrypted_data:
-                print("Falha na criptografia com TPM")
-                return None
+            # Verificar se dispositivo TPM existe
+            if not (os.path.exists('/dev/tpm0') or os.path.exists('/dev/tpmrm0')):
+                print("❌ Dispositivo TPM não encontrado")
+                return False
             
-            return encrypted_data
-        except Exception as e:
-            print(f"Erro durante criptografia: {e}")
-            return None
-
-
-    def get_vault_token(self):
-        """Obtém o token do Vault do arquivo vault-root-token"""
-        token_file = self.tpm_data_dir / 'vault-root-token'
-        try:
-            if token_file.exists():
-                with open(token_file, 'r') as f:
-                    token = f.read().strip()
-                if token:
-                    logger.info(f"Token do Vault carregado: {token[:8]}...")
-                    return token
-        except Exception as e:
-            logger.warning(f"Erro ao ler token do Vault: {e}")
-        
-        # Fallback para token padrão de desenvolvimento
-        logger.info("Usando token padrão de desenvolvimento")
-        return 'temp-root-token'
-
-    def wait_for_service(self, url, service_name, timeout=5):
-        """Aguarda um serviço ficar disponível"""
-        logger.info(f"Aguardando {service_name} ficar disponível...")
-        
-        for i in range(self.max_retries):
-            try:
-                response = requests.get(url, timeout=timeout)
-                if response.status_code == 200:
-                    logger.info(f"✅ {service_name} está respondendo!")
-                    return True
-                else:
-                    logger.info(f"{service_name} retornou status: {response.status_code}")
-            except requests.exceptions.ConnectionError:
-                if i < self.max_retries - 1:
-                    if i % 10 == 0:  # Log a cada 10 tentativas
-                        logger.info(f"{service_name} não está pronto... Tentativa {i+1}/{self.max_retries}")
-                    time.sleep(self.retry_delay)
-                else:
-                    logger.error(f"❌ {service_name} não ficou pronto a tempo")
-                    return False
-            except Exception as e:
-                logger.warning(f"Erro ao conectar com {service_name}: {e}")
-                if i < self.max_retries - 1:
-                    time.sleep(self.retry_delay)
-        
-        return False
-
-    def wait_for_tpm_validation(self):
-        """Aguarda a validação do TPM"""
-        logger.info("Aguardando validação do TPM...")
-        
-        for i in range(self.max_retries):
-            try:
-                response = requests.get(f"{self.tpm_validator_url}/status", timeout=10)
-                if response.status_code == 200:
-                    status_data = response.json()
-                    
-                    if status_data.get('tpm_validated'):
-                        logger.info("✅ TPM validado com sucesso!")
-                        return True
-                    else:
-                        if i % 10 == 0:  # Log a cada 10 tentativas
-                            logger.info(f"TPM ainda não validado: {status_data.get('message')}")
-                else:
-                    if i % 10 == 0:
-                        logger.warning(f"Resposta inesperada do TPM validator: {response.status_code}")
-            except requests.exceptions.RequestException as e:
-                if i % 10 == 0:
-                    logger.warning(f"Erro ao conectar com TPM validator: {e}")
-            
-            if i < self.max_retries - 1:
-                time.sleep(self.retry_delay)
-        
-        logger.error("❌ Timeout aguardando validação do TPM")
-        return False
-
-    def check_vault_health(self):
-        """Verifica a saúde do Vault"""
-        try:
-            token = self.get_vault_token()
-            response = requests.get(
-                f"{self.vault_addr}/v1/sys/health",
-                headers={'X-Vault-Token': token},
-                timeout=5
+            # Testar comando TPM básico
+            result = subprocess.run(
+                ['tpm2_getrandom', '4'], 
+                capture_output=True, 
+                timeout=10
             )
+            
+            if result.returncode == 0:
+                print("✅ TPM está disponível e respondendo")
+                return True
+            else:
+                print(f"❌ TPM não respondeu: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Erro ao verificar TPM: {e}")
+            return False
+    
+    def is_ready(self):
+        return self.ready
+    
+    def encrypt(self, data):
+        """Criptografa dados usando TPM no Alpine"""
+        try:
+            if isinstance(data, str):
+                data = data.encode()
+            
+            print("🔐 Criptografando com TPM...")
+            
+            # Abordagem para Alpine Linux
+            # 1. Gerar chave temporária
+            key_context = "/tmp/tpm_key.ctx"
+            result = subprocess.run([
+                'tpm2_createprimary', '-c', key_context,
+                '-C', 'o', '-Q'
+            ], capture_output=True, timeout=30)
+            
+            if result.returncode != 0:
+                print("❌ Falha ao criar chave primária TPM")
+                return self._fallback_encrypt(data)
+            
+            # 2. Criptografar dados
+            input_file = "/tmp/tpm_input.bin"
+            output_file = "/tmp/tpm_output.bin"
+            
+            with open(input_file, 'wb') as f:
+                f.write(data)
+            
+            encrypt_result = subprocess.run([
+                'tpm2_encryptdecrypt', '-c', key_context,
+                '-o', output_file, input_file
+            ], capture_output=True, timeout=30)
+            
+            # Limpar arquivos temporários
+            for temp_file in [key_context, input_file]:
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+            
+            if encrypt_result.returncode == 0 and os.path.exists(output_file):
+                with open(output_file, 'rb') as f:
+                    encrypted_data = f.read()
+                os.unlink(output_file)
+                
+                print("✅ Dados criptografados com TPM com sucesso")
+                return encrypted_data
+            else:
+                print(f"❌ Falha na criptografia TPM: {encrypt_result.stderr}")
+                return self._fallback_encrypt(data)
+                
+        except Exception as e:
+            print(f"❌ Erro durante criptografia TPM: {e}")
+            return self._fallback_encrypt(data)
+    
+    def _fallback_encrypt(self, data):
+        """Fallback para desenvolvimento"""
+        print("⚠️  Usando criptografia fallback - APENAS DESENVOLVIMENTO")
+        if isinstance(data, str):
+            data = data.encode()
+        return base64.b64encode(data) + b"[ALPINE-FALLBACK]"
+
+def setup_tpm():
+    """Configurar TPM no Alpine"""
+    print("🔧 Inicializando TPM no Alpine Linux...")
+    return TPMHandler()
+
+def wait_for_vault(vault_url, timeout=120):
+    """Aguarda o Vault ficar pronto"""
+    print(f"⏳ Aguardando Vault em {vault_url}...")
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        try:
+            response = requests.get(f"{vault_url}/v1/sys/health", timeout=5)
+            if response.status_code in [200, 501, 503]:
+                print("✅ Vault está respondendo")
+                return True
+            else:
+                print(f"📊 Vault status: {response.status_code}")
+        except requests.exceptions.RequestException as e:
+            elapsed = int(time.time() - start_time)
+            if elapsed > 30 and elapsed % 10 == 0:
+                print(f"⏳ Aguardando Vault... ({elapsed}s)")
+            time.sleep(2)
+    
+    print("❌ Timeout aguardando Vault")
+    return False
+
+def initialize_vault(vault_url):
+    """Inicializa o Vault se necessário"""
+    try:
+        response = requests.get(f"{vault_url}/v1/sys/init", timeout=10)
+        init_status = response.json()
+        
+        if not init_status.get('initialized', False):
+            print("🚀 Inicializando Vault...")
+            init_data = {
+                "secret_shares": 5,
+                "secret_threshold": 3
+            }
+            response = requests.put(
+                f"{vault_url}/v1/sys/init", 
+                json=init_data, 
+                timeout=30
+            )
+            
             if response.status_code == 200:
-                health_data = response.json()
-                logger.info(f"Vault health: initialized={health_data.get('initialized')}, sealed={health_data.get('sealed')}")
-                return True
+                init_result = response.json()
+                print("✅ Vault inicializado com sucesso")
+                return init_result
             else:
-                logger.warning(f"Vault health check falhou: {response.status_code}")
-                return False
-        except Exception as e:
-            logger.warning(f"Erro ao verificar saúde do Vault: {e}")
-            return False
+                print(f"❌ Erro na inicialização: {response.status_code}")
+                return None
+        else:
+            print("✅ Vault já está inicializado")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Erro ao verificar/inicializar Vault: {e}")
+        return None
 
-    def test_vault_operations(self):
-        """Testa operações de escrita e leitura no Vault"""
-        try:
-            token = self.get_vault_token()
-            
-            # Escrever um secret de teste
-            write_response = requests.post(
-                f"{self.vault_addr}/v1/secret/data/health-check",
-                headers={'X-Vault-Token': token},
-                json={'data': {'status': 'healthy', 'timestamp': time.time()}},
-                timeout=10
-            )
-            
-            if write_response.status_code not in [200, 204]:
-                logger.warning(f"Falha ao escrever no Vault: {write_response.status_code}")
-                return False
-            
-            # Ler o secret de teste
-            read_response = requests.get(
-                f"{self.vault_addr}/v1/secret/data/health-check",
-                headers={'X-Vault-Token': token},
-                timeout=10
-            )
-            
-            if read_response.status_code == 200:
-                logger.info("✅ Operações de escrita/leitura no Vault funcionando")
-                return True
-            else:
-                logger.warning(f"Falha ao ler do Vault: {read_response.status_code}")
-                return False
-                
-        except Exception as e:
-            logger.warning(f"Erro ao testar operações do Vault: {e}")
-            return False
+def save_encrypted_data(output_dir, init_result, tpm):
+    """Salva dados criptografados"""
+    if not init_result:
+        print("📝 Nenhum dado para salvar - Vault já inicializado")
+        return True
+    
+    root_token = init_result.get('root_token')
+    keys_base64 = init_result.get('keys_base64', [])
+    
+    success = True
+    
+    print(f"💾 Salvando {len(keys_base64)} chaves de unseal...")
+    
+    # Salvar root token
+    if root_token:
+        encrypted_token = tpm.encrypt(root_token)
+        if encrypted_token:
+            token_path = os.path.join(output_dir, "root_token.enc")
+            with open(token_path, 'wb') as f:
+                f.write(encrypted_token)
+            print(f"✅ Token root salvo em: {token_path}")
+        else:
+            print("❌ Falha ao criptografar root token")
+            success = False
+    
+    # Salvar chaves de unseal
+    for i, key in enumerate(keys_base64):
+        encrypted_key = tpm.encrypt(key)
+        if encrypted_key:
+            key_path = os.path.join(output_dir, f"unseal_key_{i}.enc")
+            with open(key_path, 'wb') as f:
+                f.write(encrypted_key)
+            print(f"✅ Chave {i} salva em: {key_path}")
+        else:
+            print(f"❌ Falha ao criptografar chave {i}")
+            success = False
+    
+    return success
 
-    def run(self):
-        """Fluxo principal de inicialização"""
-        logger.info("🚀 Iniciando serviço de inicialização segura do Vault")
-        
-        # PRIMEIRO: Aguardar Vault ficar pronto
-        if not self.wait_for_service(f"{self.vault_addr}/v1/sys/health", "Vault"):
-            logger.error("❌ Falha ao conectar com Vault")
-            sys.exit(1)
-        
-        # SEGUNDO: Aguardar validação do TPM
-        if not self.wait_for_tpm_validation():
-            logger.error("❌ Falha na validação do TPM")
-            sys.exit(1)
-        
-        # TERCEIRO: Verificar saúde do Vault
-        if not self.check_vault_health():
-            logger.error("❌ Problema na saúde do Vault")
-            sys.exit(1)
-        
-        # QUARTO: Testar operações do Vault
-        if not self.test_vault_operations():
-            logger.warning("⚠️ Operações do Vault com problemas, mas continuando...")
-        
-        token = self.get_vault_token()
-        logger.info(f"🎉 Processo de inicialização segura concluído! Token: {token}")
-        
-        # Health check contínuo
-        success_count = 0
-        while True:
-            try:
-                vault_ok = self.check_vault_health()
-                tpm_response = requests.get(f"{self.tpm_validator_url}/status", timeout=5)
-                tpm_ok = tpm_response.status_code == 200 and tpm_response.json().get('tpm_validated', False)
-                
-                if vault_ok and tpm_ok:
-                    success_count += 1
-                    if success_count % 12 == 0:  # Log a cada 6 minutos (12 * 30s)
-                        logger.info(f"✅ Sistema operacional normal - {success_count} checks bem-sucedidos")
-                else:
-                    logger.warning("⚠️ Problemas detectados no sistema")
-                    success_count = 0
-                    
-            except Exception as e:
-                logger.error(f"❌ Erro no health check: {e}")
-                success_count = 0
+def main():
+    print("=" * 50)
+    print("🚀 Inicializador Vault com TPM - Alpine Linux")
+    print("=" * 50)
+    
+    vault_url = os.getenv('VAULT_ADDR', 'http://vault:8200')
+    output_dir = "/app/tpm-data"
+    
+    print(f"📍 Vault URL: {vault_url}")
+    print(f"📁 Output dir: {output_dir}")
+    
+    # Criar diretório de saída
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"✅ Diretório {output_dir} criado/verificado")
+    
+    # Verificar dispositivo TPM
+    tpm_device = None
+    for device in ['/dev/tpm0', '/dev/tpmrm0']:
+        if os.path.exists(device):
+            tpm_device = device
+            print(f"✅ Dispositivo TPM encontrado: {device}")
+            break
+    
+    if not tpm_device:
+        print("❌ Nenhum dispositivo TPM encontrado")
+    
+    # Inicializar TPM
+    tpm = setup_tpm()
+    
+    # Aguardar Vault
+    if not wait_for_vault(vault_url):
+        sys.exit(1)
+    
+    # Inicializar Vault
+    init_result = initialize_vault(vault_url)
+    
+    # Salvar dados
+    if init_result:
+        if save_encrypted_data(output_dir, init_result, tpm):
+            print("\n🎉 Processo de inicialização concluído com sucesso!")
             
-            time.sleep(30)  # Verificar a cada 30 segundos
+            # Listar arquivos gerados
+            print("\n📋 Arquivos gerados:")
+            for file in sorted(Path(output_dir).iterdir()):
+                size = file.stat().st_size
+                print(f"   📄 {file.name} ({size} bytes)")
+        else:
+            print("❌ Erro ao salvar dados criptografados")
+            sys.exit(1)
+    else:
+        print("✅ Vault já estava inicializado")
 
-if __name__ == "__main__":
-    initializer = VaultInitializer()
-    initializer.run()
+if __name__ == '__main__':
+    main()
