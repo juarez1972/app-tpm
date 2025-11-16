@@ -14,48 +14,44 @@ def read_tpm_secret():
         return None
 
 def validate_tpm():
-    """Valida o TPM comparando o segredo armazenado com o segredo lido"""
+    """Valida o TPM verificando o segredo"""
     secret = read_tpm_secret()
     if secret is None:
         return False, "Não foi possível ler o segredo do TPM"
-
-    # Aqui você pode adicionar lógica para comparar com um hash esperado, se necessário
-    # Por enquanto, vamos apenas retornar True se o segredo foi lido
+    
+    if len(secret) != 32:
+        return False, f"Segredo com tamanho inválido: {len(secret)} bytes (esperado: 32)"
+    
     return True, "TPM validado com sucesso"
 
 @app.route('/')
 def index():
-    """Página principal que mostra o status da validação TPM"""
+    """Página principal"""
     validated, message = validate_tpm()
-    if validated:
-        return """
-        <html>
-            <head><title>Validação TPM</title></head>
-            <body>
-                <h1>✅ TPM Validado com Sucesso</h1>
-                <p><strong>Mensagem:</strong> {}</p>
-                <p><a href="/status">Ver Status JSON</a></p>
-            </body>
-        </html>
-        """.format(message)
-    else:
-        return """
-        <html>
-            <head><title>Validação TPM</title></head>
-            <body>
-                <h1>❌ Falha na Validação TPM</h1>
-                <p><strong>Erro:</strong> {}</p>
-                <p><a href="/status">Ver Status JSON</a></p>
-            </body>
-        </html>
-        """.format(message)
+    status = "✅ VALIDADO" if validated else "❌ FALHA"
+    
+    return f"""
+    <html>
+        <head><title>Sistema TPM + Vault</title></head>
+        <body>
+            <h1>Sistema de Validação TPM + Vault</h1>
+            <h2>Status: {status}</h2>
+            <p><strong>Mensagem:</strong> {message}</p>
+            <p><strong>Endpoints:</strong></p>
+            <ul>
+                <li><a href="/status">/status</a> - Status JSON da validação</li>
+                <li><a href="/health">/health</a> - Health check simples</li>
+            </ul>
+        </body>
+    </html>
+    """
 
 @app.route('/status')
 def status():
-    """Endpoint para verificar o status da validação TPM (usado pelo vault-initializer)"""
+    """Endpoint para verificar o status da validação TPM"""
     validated, message = validate_tpm()
     
-    # Calcular hash do segredo para debug
+    # Calcular hash do segredo para verificação
     secret = read_tpm_secret()
     secret_hash = hashlib.sha256(secret).hexdigest() if secret else None
     
@@ -63,6 +59,7 @@ def status():
         'tpm_validated': validated,
         'message': message,
         'secret_hash': secret_hash,
+        'secret_length': len(secret) if secret else 0,
         'machine_verified': validated,
         'timestamp': datetime.utcnow().isoformat()
     })
@@ -70,7 +67,7 @@ def status():
 @app.route('/health')
 def health():
     """Health check simples"""
-    return jsonify({'status': 'healthy'})
+    return jsonify({'status': 'healthy', 'service': 'tpm-validator'})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)

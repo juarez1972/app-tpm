@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   tpm-validator:
@@ -10,6 +9,8 @@ services:
       - ./tpm-data:/app/tpm-data
     environment:
       - VAULT_ADDR=http://vault:8200
+    networks:
+      - tpm-vault-network
     restart: unless-stopped
 
   vault:
@@ -18,16 +19,16 @@ services:
       - "8200:8200"
     environment:
       - VAULT_DEV_ROOT_TOKEN_ID=temp-root-token
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
     volumes:
       - ./vault-data:/vault/data
+      - ./vault-config.hcl:/vault/config/vault-config.hcl
     cap_add:
       - IPC_LOCK
+    networks:
+      - tpm-vault-network
     restart: unless-stopped
-    entrypoint: |
-      sh -c "
-      echo 'Iniciando Vault em modo desenvolvimento com persistência...'
-      vault server -dev -dev-root-token-id=temp-root-token -dev-listen-address=0.0.0.0:8200
-      "
+    command: server -dev -dev-root-token-id=temp-root-token -dev-listen-address=0.0.0.0:8200 -config /vault/config/vault-config.hcl
 
   vault-initializer:
     build: ./vault-init
@@ -36,4 +37,10 @@ services:
       - VAULT_ADDR=http://vault:8200
     volumes:
       - ./tpm-data:/app/tpm-data
+    networks:
+      - tpm-vault-network
     restart: unless-stopped
+
+networks:
+  tpm-vault-network:
+    driver: bridge
