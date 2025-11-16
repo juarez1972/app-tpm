@@ -1,51 +1,40 @@
+version: '3.8'
+
 services:
   vault:
     image: vault:1.13.3
     container_name: vault
     ports:
       - "8201:8200"
-    environment:
-      - VAULT_ADDR=http://vault:8200
-      - VAULT_API_ADDR=http://vault:8200
-    volumes:
-      - ./vault-data:/vault/data
-      - ./vault-config.hcl:/vault/config/vault-config.hcl
-    command: server -config=/vault/config/vault-config.hcl
+    command: server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
     cap_add:
       - IPC_LOCK
     networks:
       - vault-network
 
   vault-initializer:
-    build: 
-      context: ./vault-init
-      dockerfile: Dockerfile.alpine
+    build: ./vault-init
     container_name: vault-initializer
     volumes:
       - ./tpm-data:/app/tpm-data
-      - ./vault-data:/vault-data
     devices:
       - "/dev/tpmrm0:/dev/tpmrm0"
     environment:
       - VAULT_ADDR=http://vault:8200
-    # Adicionar permissões extras se necessário
-    privileged: false
-    user: "0:0"  # Executar como root para garantir acesso ao dispositivo
     depends_on:
       - vault
     networks:
       - vault-network
 
   tpm-validator:
-    build: 
-      context: ./tpm-validator
-      dockerfile: Dockerfile.alpine
+    build: ./tpm-validator
     container_name: tpm-validator
     volumes:
       - ./tpm-data:/app/tpm-data
     devices:
       - "/dev/tpmrm0:/dev/tpmrm0"
-    user: "0:0"  # Executar como root para garantir acesso ao dispositivo
+    ports:
+      - "8080:8080"  # Para health checks
     depends_on:
       - vault-initializer
     networks:
@@ -54,9 +43,3 @@ services:
 networks:
   vault-network:
     driver: bridge
-
-volumes:
-  vault-data:
-    driver: local
-  tpm-data:
-    driver: local

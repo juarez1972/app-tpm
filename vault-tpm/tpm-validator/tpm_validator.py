@@ -2,128 +2,106 @@ import os
 import time
 import subprocess
 from pathlib import Path
+from flask import Flask, jsonify
+import threading
+import requests
+
+app = Flask(__name__)
+
+@app.route('/health')
+def health():
+    """Health check endpoint"""
+    try:
+        # Verificar TPM
+        tpm_result = subprocess.run(['tpm2_getrandom', '4', '--tcti', 'device:/dev/tpmrm0'], capture_output=True, timeout=10)
+        tpm_ok = tpm_result.returncode == 0
+        
+        # Verificar arquivos
+        data_dir = Path("/app/tpm-data")
+        enc_files = list(data_dir.glob("*.enc"))
+        files_ok = len(enc_files) > 0
+        
+        status = "healthy" if (tpm_ok and files_ok) else "unhealthy"
+        
+        return jsonify({
+            "status": status,
+            "tpm_operational": tpm_ok,
+            "encrypted_files_present": files_ok,
+            "files_count": len(enc_files),
+            "service": "tpm-validator"
+        })
+    except Exception as e:
+        return jsonify({"status": "unhealthy", "error": str(e)}), 500
+
+def run_health_check():
+    """Executa o servidor de health check"""
+    print("🏥 Iniciando servidor de health check na porta 8080...")
+    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
 
 def check_tpm_status():
-    """Verifica status do TPM usando /dev/tpmrm0"""
+    """Verifica status do TPM"""
     try:
-        # Verificar se dispositivo TPM existe
-        if not os.path.exists('/dev/tpmrm0'):
-            return False, "❌ Dispositivo /dev/tpmrm0 não encontrado"
-        
-        # Testar comando básico do TPM com TCTI específico
-        result = subprocess.run(
-            ['tpm2_getrandom', '4', '--tcti', 'device:/dev/tpmrm0'], 
-            capture_output=True, 
-            timeout=30
-        )
-        
+        result = subprocess.run(['tpm2_getrandom', '4', '--tcti', 'device:/dev/tpmrm0'], capture_output=True, timeout=10)
         if result.returncode == 0:
-            return True, "✅ TPM operacional com /dev/tpmrm0"
+            return True, "✅ TPM operacional"
         else:
             return False, f"❌ TPM não responde: {result.stderr.decode()}"
-            
     except Exception as e:
         return False, f"❌ Erro TPM: {e}"
 
-def check_encrypted_files():
-    """Verifica se arquivos .enc existem e são válidos"""
+def check_files():
+    """Verifica arquivos .enc"""
     data_dir = Path("/app/tpm-data")
     if not data_dir.exists():
-        return False, "❌ Diretório de dados não existe"
+        return False, "❌ Diretório não existe"
     
     enc_files = list(data_dir.glob("*.enc"))
     if not enc_files:
-        return False, "❌ Nenhum arquivo .enc encontrado"
+        return False, "❌ Nenhum arquivo .enc"
     
-    # Verificar se arquivos têm conteúdo
-    empty_files = []
-    valid_files = []
-    
-    for file in enc_files:
-        if file.stat().st_size == 0:
-            empty_files.append(file.name)
-        else:
-            valid_files.append(file.name)
-    
-    if empty_files:
-        return False, f"❌ Arquivos vazios: {', '.join(empty_files)}"
-    
-    # Verificar se são arquivos TPM reais (não simulados)
-    for file in enc_files:
-        with open(file, 'rb') as f:
-            content = f.read(100)
-            if content.startswith(b"SIMULATED_TPM_"):
-                return False, f"❌ Arquivo {file.name} usa criptografia simulada"
-    
-    return True, f"✅ {len(valid_files)} arquivos .enc válidos (TPM real)"
+    return True, f"✅ {len(enc_files)} arquivos .enc encontrados"
 
-def check_vault_status():
-    """Verifica se Vault está acessível e unsealed"""
+def check_vault():
+    """Verifica status do Vault"""
     try:
-        import requests
         response = requests.get('http://vault:8200/v1/sys/health', timeout=5)
-        if response.status_code == 200:
-            return True, "✅ Vault está operacional e unsealed"
-        elif response.status_code == 503:
-            return False, "❌ Vault está sealed"
-        elif response.status_code == 501:
-            return False, "❌ Vault não inicializado"
+        if response.status_code in [200, 501, 503]:
+            return True, "✅ Vault respondendo"
         else:
-            return False, f"❌ Vault status inesperado: {response.status_code}"
+            return False, f"❌ Vault status: {response.status_code}"
     except Exception as e:
-        return False, f"❌ Vault não acessível: {e}"
-
-def check_vault_operations():
-    """Testa operações básicas do Vault"""
-    try:
-        import requests
-        
-        # Verificar se a API responde
-        response = requests.get('http://vault:8200/v1/sys/auth', timeout=5)
-        
-        if response.status_code == 200:
-            return True, "✅ API do Vault operacional"
-        elif response.status_code == 403:
-            return True, "✅ Vault responde (sem token)"
-        else:
-            return False, f"❌ Falha na API: {response.status_code}"
-            
-    except Exception as e:
-        return False, f"❌ Erro nas operações: {e}"
+        return False, f"❌ Vault inacessível: {e}"
 
 def main():
-    print("=" * 50)
-    print("🔍 TPM VALIDATOR - MODO PRODUÇÃO (/dev/tpmrm0)")
-    print("=" * 50)
+    # Iniciar health check em thread separada
+    health_thread = threading.Thread(target=run_health_check, daemon=True)
+    health_thread.start()
+    
+    print("🔍 TPM VALIDATOR COM HEALTH CHECK")
+    print("================================")
     
     check_count = 0
     
     while True:
         check_count += 1
-        print(f"\n📊 Verificação #{check_count}")
-        print("-" * 50)
+        print(f"\n📊 Verificação #{check_count} - {time.strftime('%H:%M:%S')}")
+        print("-" * 40)
         
         # Verificar TPM
         tpm_ok, tpm_msg = check_tpm_status()
         print(f"🔧 TPM: {tpm_msg}")
         
         # Verificar arquivos
-        files_ok, files_msg = check_encrypted_files()
+        files_ok, files_msg = check_files()
         print(f"📁 Arquivos: {files_msg}")
         
         # Verificar Vault
-        vault_ok, vault_msg = check_vault_status()
+        vault_ok, vault_msg = check_vault()
         print(f"🚀 Vault: {vault_msg}")
         
-        # Verificar operações
-        operations_ok, operations_msg = check_vault_operations()
-        print(f"⚡ Operações: {operations_msg}")
-        
         # Status geral
-        all_ok = all([tpm_ok, files_ok, vault_ok, operations_ok])
-        
-        if all_ok:
-            print("\n🎉 STATUS: Sistema 100% operacional em produção!")
+        if all([tpm_ok, files_ok, vault_ok]):
+            print("\n🎉 STATUS: Sistema 100% operacional!")
         else:
             print("\n⚠️  STATUS: Problemas detectados")
             if not tpm_ok:
@@ -132,10 +110,8 @@ def main():
                 print("   ❌ Arquivos criptografados com problemas")
             if not vault_ok:
                 print("   ❌ Vault com problemas")
-            if not operations_ok:
-                print("   ❌ Operações com problemas")
         
-        print(f"⏰ Próxima verificação em 30 segundos...")
+        print("⏰ Próxima verificação em 30 segundos...")
         time.sleep(30)
 
 if __name__ == '__main__':

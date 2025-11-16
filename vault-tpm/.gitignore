@@ -1,6 +1,4 @@
-backup_20251110_003314/
-tpm-data/secret
-tpm-data/vault-root-key
+tpm-data/
 vault-data/
 venv/
 
