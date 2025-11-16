@@ -11,7 +11,7 @@ NC='\033[0m' # No Color
 # Configuration
 COMPOSE_FILE="docker-compose.yml"
 VAULT_SERVICE="vault"
-TPM_SERVICE="tpm-service"  # Adjust based on your compose file
+TPM_SERVICE="tpm-validator"  # Adjust based on your compose file
 NETWORK_NAME="vault-tpm-network"
 
 # Logging functions
