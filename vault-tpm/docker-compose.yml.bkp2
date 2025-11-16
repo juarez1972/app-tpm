@@ -25,12 +25,9 @@ services:
       - ./tpm-data:/app/tpm-data
       - ./vault-data:/vault-data
     devices:
-      - "/dev/tpmrm0:/dev/tpmrm0"
+      - "/dev/tpm0:/dev/tpmrm0"
     environment:
       - VAULT_ADDR=http://vault:8200
-    # Adicionar permissões extras se necessário
-    privileged: false
-    user: "0:0"  # Executar como root para garantir acesso ao dispositivo
     depends_on:
       - vault
     networks:
@@ -44,8 +41,7 @@ services:
     volumes:
       - ./tpm-data:/app/tpm-data
     devices:
-      - "/dev/tpmrm0:/dev/tpmrm0"
-    user: "0:0"  # Executar como root para garantir acesso ao dispositivo
+      - "/dev/tpm0:/dev/tpm0"
     depends_on:
       - vault-initializer
     networks:

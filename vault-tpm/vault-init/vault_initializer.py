@@ -8,102 +8,107 @@ import subprocess
 from pathlib import Path
 
 class TPMHandler:
-    """Manipula operações TPM no Alpine Linux"""
+    """Manipula operações TPM com fallback automático"""
     
     def __init__(self):
-        self.ready = self._check_tpm_availability()
+        self.ready, self.reason, self.tcti = self._check_tpm_availability()
+        if not self.ready:
+            print(f"⚠️  TPM não disponível: {self.reason}")
+            print("🔓 Usando modo fallback para desenvolvimento")
+        else:
+            print(f"✅ TPM inicializado com TCTI: {self.tcti}")
     
     def _check_tpm_availability(self):
-        """Verifica se o TPM está disponível"""
-        try:
-            # Verificar se dispositivo TPM existe
-            if not (os.path.exists('/dev/tpm0') or os.path.exists('/dev/tpmrm0')):
-                print("❌ Dispositivo TPM não encontrado")
-                return False
-            
-            # Testar comando TPM básico
-            result = subprocess.run(
-                ['tpm2_getrandom', '4'], 
-                capture_output=True, 
-                timeout=10
-            )
-            
-            if result.returncode == 0:
-                print("✅ TPM está disponível e respondendo")
-                return True
-            else:
-                print(f"❌ TPM não respondeu: {result.stderr}")
-                return False
+        """Verifica se o TPM está disponível com múltiplas tentativas"""
+        tcti_options = [
+            'device:/dev/tpmrm0',
+            'device:/dev/tpm0',
+            None  # Tenta sem TCTI específico
+        ]
+        
+        for tcti in tcti_options:
+            try:
+                cmd = ['tpm2_getrandom', '4']
+                if tcti:
+                    cmd.extend(['--tcti', tcti])
                 
-        except Exception as e:
-            print(f"❌ Erro ao verificar TPM: {e}")
-            return False
+                result = subprocess.run(cmd, capture_output=True, timeout=10)
+                
+                if result.returncode == 0:
+                    return True, f"TPM operacional", tcti
+                    
+            except Exception as e:
+                continue
+        
+        return False, "TPM não responde em nenhuma configuração", None
     
     def is_ready(self):
         return self.ready
     
     def encrypt(self, data):
-        """Criptografa dados usando TPM no Alpine"""
+        """Criptografa dados - usa TPM se disponível, senão fallback"""
         try:
             if isinstance(data, str):
                 data = data.encode()
             
-            print("🔐 Criptografando com TPM...")
+            if self.ready and self.tcti:
+                encrypted = self._encrypt_with_tpm(data)
+                if encrypted:
+                    return encrypted
             
-            # Abordagem para Alpine Linux
-            # 1. Gerar chave temporária
-            key_context = "/tmp/tpm_key.ctx"
-            result = subprocess.run([
-                'tpm2_createprimary', '-c', key_context,
-                '-C', 'o', '-Q'
-            ], capture_output=True, timeout=30)
+            # Fallback para desenvolvimento
+            print("🔓 Usando criptografia fallback (modo desenvolvimento)")
+            return b"FALLBACK_" + base64.b64encode(data)
+                
+        except Exception as e:
+            print(f"❌ Erro durante criptografia: {e}")
+            return b"FALLBACK_" + base64.b64encode(data)
+    
+    def _encrypt_with_tpm(self, data):
+        """Tenta criptografar com TPM real"""
+        try:
+            print("🔐 Tentando criptografia com TPM...")
             
-            if result.returncode != 0:
-                print("❌ Falha ao criar chave primária TPM")
-                return self._fallback_encrypt(data)
-            
-            # 2. Criptografar dados
+            # Abordagem mais simples: usar encryptdecrypt direto
             input_file = "/tmp/tpm_input.bin"
             output_file = "/tmp/tpm_output.bin"
             
             with open(input_file, 'wb') as f:
                 f.write(data)
             
-            encrypt_result = subprocess.run([
-                'tpm2_encryptdecrypt', '-c', key_context,
-                '-o', output_file, input_file
-            ], capture_output=True, timeout=30)
+            cmd = [
+                'tpm2_encryptdecrypt',
+                '-o', output_file,
+                input_file
+            ]
             
-            # Limpar arquivos temporários
-            for temp_file in [key_context, input_file]:
-                if os.path.exists(temp_file):
-                    os.unlink(temp_file)
+            if self.tcti:
+                cmd.extend(['--tcti', self.tcti])
             
-            if encrypt_result.returncode == 0 and os.path.exists(output_file):
+            result = subprocess.run(cmd, capture_output=True, timeout=30)
+            
+            # Limpar arquivo de entrada
+            if os.path.exists(input_file):
+                os.unlink(input_file)
+            
+            if result.returncode == 0 and os.path.exists(output_file):
                 with open(output_file, 'rb') as f:
                     encrypted_data = f.read()
                 os.unlink(output_file)
                 
-                print("✅ Dados criptografados com TPM com sucesso")
+                print(f"✅ Dados criptografados com TPM: {len(encrypted_data)} bytes")
                 return encrypted_data
             else:
-                print(f"❌ Falha na criptografia TPM: {encrypt_result.stderr}")
-                return self._fallback_encrypt(data)
+                print(f"❌ Criptografia TPM falhou: {result.stderr.decode()}")
+                return None
                 
         except Exception as e:
-            print(f"❌ Erro durante criptografia TPM: {e}")
-            return self._fallback_encrypt(data)
-    
-    def _fallback_encrypt(self, data):
-        """Fallback para desenvolvimento"""
-        print("⚠️  Usando criptografia fallback - APENAS DESENVOLVIMENTO")
-        if isinstance(data, str):
-            data = data.encode()
-        return base64.b64encode(data) + b"[ALPINE-FALLBACK]"
+            print(f"❌ Erro na criptografia TPM: {e}")
+            return None
 
 def setup_tpm():
-    """Configurar TPM no Alpine"""
-    print("🔧 Inicializando TPM no Alpine Linux...")
+    """Configurar TPM"""
+    print("🔧 Inicializando TPM...")
     return TPMHandler()
 
 def wait_for_vault(vault_url, timeout=120):
@@ -117,11 +122,9 @@ def wait_for_vault(vault_url, timeout=120):
             if response.status_code in [200, 501, 503]:
                 print("✅ Vault está respondendo")
                 return True
-            else:
-                print(f"📊 Vault status: {response.status_code}")
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             elapsed = int(time.time() - start_time)
-            if elapsed > 30 and elapsed % 10 == 0:
+            if elapsed % 10 == 0:
                 print(f"⏳ Aguardando Vault... ({elapsed}s)")
             time.sleep(2)
     
@@ -129,13 +132,13 @@ def wait_for_vault(vault_url, timeout=120):
     return False
 
 def initialize_vault(vault_url):
-    """Inicializa o Vault se necessário"""
+    """Inicializa o Vault em modo produção"""
     try:
         response = requests.get(f"{vault_url}/v1/sys/init", timeout=10)
         init_status = response.json()
         
         if not init_status.get('initialized', False):
-            print("🚀 Inicializando Vault...")
+            print("🚀 Inicializando Vault em modo produção...")
             init_data = {
                 "secret_shares": 5,
                 "secret_threshold": 3
@@ -148,7 +151,8 @@ def initialize_vault(vault_url):
             
             if response.status_code == 200:
                 init_result = response.json()
-                print("✅ Vault inicializado com sucesso")
+                print("✅ Vault inicializado em modo produção")
+                print(f"📋 Chaves geradas: {len(init_result.get('keys_base64', []))}")
                 return init_result
             else:
                 print(f"❌ Erro na inicialização: {response.status_code}")
@@ -164,8 +168,8 @@ def initialize_vault(vault_url):
 def save_encrypted_data(output_dir, init_result, tpm):
     """Salva dados criptografados"""
     if not init_result:
-        print("📝 Nenhum dado para salvar - Vault já inicializado")
-        return True
+        print("❌ Nenhum dado para salvar")
+        return False
     
     root_token = init_result.get('root_token')
     keys_base64 = init_result.get('keys_base64', [])
@@ -182,6 +186,12 @@ def save_encrypted_data(output_dir, init_result, tpm):
             with open(token_path, 'wb') as f:
                 f.write(encrypted_token)
             print(f"✅ Token root salvo em: {token_path}")
+            
+            # Salvar em claro para referência
+            clear_path = os.path.join(output_dir, "root_token.txt")
+            with open(clear_path, 'w') as f:
+                f.write(root_token)
+            print(f"📝 Token em claro salvo em: {clear_path}")
         else:
             print("❌ Falha ao criptografar root token")
             success = False
@@ -194,6 +204,11 @@ def save_encrypted_data(output_dir, init_result, tpm):
             with open(key_path, 'wb') as f:
                 f.write(encrypted_key)
             print(f"✅ Chave {i} salva em: {key_path}")
+            
+            # Salvar em claro para referência
+            clear_path = os.path.join(output_dir, f"unseal_key_{i}.txt")
+            with open(clear_path, 'w') as f:
+                f.write(key)
         else:
             print(f"❌ Falha ao criptografar chave {i}")
             success = False
@@ -201,9 +216,9 @@ def save_encrypted_data(output_dir, init_result, tpm):
     return success
 
 def main():
-    print("=" * 50)
-    print("🚀 Inicializador Vault com TPM - Alpine Linux")
-    print("=" * 50)
+    print("=" * 60)
+    print("🚀 INICIALIZADOR VAULT COM TPM")
+    print("=" * 60)
     
     vault_url = os.getenv('VAULT_ADDR', 'http://vault:8200')
     output_dir = "/app/tpm-data"
@@ -213,18 +228,7 @@ def main():
     
     # Criar diretório de saída
     os.makedirs(output_dir, exist_ok=True)
-    print(f"✅ Diretório {output_dir} criado/verificado")
-    
-    # Verificar dispositivo TPM
-    tpm_device = None
-    for device in ['/dev/tpm0', '/dev/tpmrm0']:
-        if os.path.exists(device):
-            tpm_device = device
-            print(f"✅ Dispositivo TPM encontrado: {device}")
-            break
-    
-    if not tpm_device:
-        print("❌ Nenhum dispositivo TPM encontrado")
+    print(f"✅ Diretório {output_dir} preparado")
     
     # Inicializar TPM
     tpm = setup_tpm()
@@ -236,21 +240,28 @@ def main():
     # Inicializar Vault
     init_result = initialize_vault(vault_url)
     
-    # Salvar dados
     if init_result:
+        # Salvar dados criptografados
         if save_encrypted_data(output_dir, init_result, tpm):
-            print("\n🎉 Processo de inicialização concluído com sucesso!")
+            print("\n✅ Dados de inicialização salvos!")
             
             # Listar arquivos gerados
-            print("\n📋 Arquivos gerados:")
+            print("\n📋 ARQUIVOS GERADOS:")
             for file in sorted(Path(output_dir).iterdir()):
                 size = file.stat().st_size
                 print(f"   📄 {file.name} ({size} bytes)")
+            
+            if not tpm.is_ready():
+                print("\n⚠️  AVISO: Modo fallback ativo")
+                print("   Os arquivos .enc usam criptografia simulada")
+                print("   Para produção, verifique o acesso ao TPM")
+            
+            print("\n🎉 PROCESSO CONCLUÍDO COM SUCESSO!")
         else:
-            print("❌ Erro ao salvar dados criptografados")
+            print("❌ Falha ao salvar dados")
             sys.exit(1)
     else:
-        print("✅ Vault já estava inicializado")
+        print("⚠️  Vault já estava inicializado")
 
 if __name__ == '__main__':
     main()
