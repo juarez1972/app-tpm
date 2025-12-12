@@ -78,6 +78,26 @@ docker exec -it -e "VAULT_ADDR=http://127.0.0.1:8200" vault vault operator unsea
   testar alguma aplicação em OT, como raspberry
 
 
+# Uso do Git Hub:
+    Adicionar arquivos que estao no diretorio:
+    $ git add .
+    Informações sobre o Commit:
+    $ git commit -m 'mensagem'
+    Enviar alterações do diretório local para remoto no Git:
+    $ git push -uf origin main
+
+# Configurações do PYTHON
+    Para atualizar os requisitos de bibliotecas do Python:
+    Requisitos de instalações que ficarão no pacote:
+    $ pip freeze > requirements.txt
+    Para instalar os requisitos de bibliotecas em um novo ambiente virtual
+    $ pip install -r requirements.txt
+    Criar um ambiente virtual do Python:
+    $ python3 -m venv venv (rodar dentro da pasta do projeto)
+    Habilitar o ambiente virtual criado:
+    $ source venv/bin/activate
+
+
 
 
 
