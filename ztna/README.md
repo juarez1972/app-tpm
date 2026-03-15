@@ -5,7 +5,8 @@ Ele organiza a separação dos serviços em dois domínios (Identidade e Rede Ze
 
 # PoC: Migração VPN para ZTNA com OpenZiti & Keycloak
 
-Este projeto implementa uma infraestrutura de **Zero Trust Network Access (ZTNA)** para substituir sistemas de VPN tradicionais (OpenVPN/OPNsense). A solução utiliza **OpenZiti** para a malha de rede segura e **Keycloak** (federado ao Entra ID) para gestão de identidades com auto-provisionamento.
+Este projeto implementa uma infraestrutura de **Zero Trust Network Access (ZTNA)** para substituir sistemas de VPN tradicionais (OpenVPN/OPNsense).
+A solução utiliza **OpenZiti** para a malha de rede segura e **Keycloak** (federado ao Entra ID) para gestão de identidades com auto-provisionamento.
 
 ## 1. Arquitetura da Solução
 
@@ -64,7 +65,7 @@ Para suportar os 14.000 usuários sem criação manual, execute o script de auto
 
 ---
 
-## 5. Considerações para Produção (14k Usuários)
+## 5. Considerações para Produção (elevado número de usuários)
 
 | Item | Recomendação PoC | Recomendação Produção |
 | --- | --- | --- |
@@ -76,7 +77,9 @@ Para suportar os 14.000 usuários sem criação manual, execute o script de auto
 ---
 6. Integração de Grupos: Keycloak + Entra ID + OpenZiti
 
-Para gerenciar 14 mil usuários, utilizaremos Policies baseadas em Claims. O objetivo é que o OpenZiti leia o grupo "Financeiro" vindo do Entra ID e conceda acesso automaticamente.
+Para gerenciar milhares de usuários, utilizaremos Policies baseadas em Claims. 
+O objetivo é que o OpenZiti leia o grupo "Financeiro" vindo do Entra ID e conceda acesso automaticamente.
+
 A. No Keycloak (Mapeamento do Entra ID)
 
     Vá em Identity Providers > Entra ID (seu provedor configurado).
