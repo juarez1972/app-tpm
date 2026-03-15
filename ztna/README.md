@@ -127,7 +127,7 @@ ziti edge create service-policy "acesso-financeiro-restrito" Dial \
   --service-roles "#financeiro-services" \
   --posture-check-roles "check-financeiro"
 
-Por que esta abordagem é vital para 14k usuários?
+Por que esta abordagem é vital para muitos usuários?
 
     Zero Toque no Ziti: Se o RH move um usuário de "Vendas" para "Financeiro" no Entra ID, o próximo JWT emitido pelo Keycloak terá a nova claim. O OpenZiti atualizará o acesso em tempo real sem você abrir o console.
 
