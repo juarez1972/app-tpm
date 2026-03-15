@@ -1,0 +1,37 @@
+services:
+  ziti-controller:
+    image: openziti/quickstart:latest
+    container_name: ziti-controller
+    environment:
+      - ZITI_CTRL_ADVERTISED_ADDRESS=localhost
+      - ZITI_CTRL_PORT=1280
+      - ZITI_USER=admin
+      - ZITI_PWD=password
+    ports:
+      - "1280:1280" # API do Controller
+      - "8443:8443" # Console (ZAC)
+    volumes:
+      - ziti_data:/var/openziti
+    networks:
+      - ziti-net
+
+  ziti-edge-router:
+    image: openziti/quickstart:latest
+    container_name: ziti-edge-router
+    depends_on:
+      - ziti-controller
+    environment:
+      - ZITI_CTRL_ADVERTISED_ADDRESS=ziti-controller
+      - ZITI_CTRL_PORT=1280
+    command: /var/openziti/scripts/run-router.sh edge-router
+    ports:
+      - "3022:3022" # Porta de link do Router
+    networks:
+      - ziti-net
+
+networks:
+  ziti-net:
+    driver: bridge
+
+volumes:
+  ziti_data:
