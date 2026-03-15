@@ -1,136 +1,88 @@
-Este arquivo **README.md** foi estruturado para servir como o guia mestre da sua Prova de Conceito (PoC). 
-Ele organiza a separação dos serviços em dois domínios (Identidade e Rede Zero Trust) e explica como eles se conectam para suportar a escala de 14 mil usuários.
+Com a nova estrutura de rede compartilhada e a correção das portas, o seu `README.md` precisa refletir a arquitetura exata da PoC. Este documento agora serve como o guia operacional para subir o ambiente e validar a integração.
 
 ---
 
 # PoC: Migração VPN para ZTNA com OpenZiti & Keycloak
 
-Este projeto implementa uma infraestrutura de **Zero Trust Network Access (ZTNA)** para substituir sistemas de VPN tradicionais (OpenVPN/OPNsense).
-A solução utiliza **OpenZiti** para a malha de rede segura e **Keycloak** (federado ao Entra ID) para gestão de identidades com auto-provisionamento.
+Este projeto implementa uma infraestrutura de **Zero Trust Network Access (ZTNA)**. O objetivo é validar a substituição de VPNs baseadas em perímetro (como OPNsense) por uma rede overlay baseada em identidade, capaz de escalar para 10.000 usuários.
 
-## 1. Arquitetura da Solução
+## 1. Topologia da Rede Docker
 
-A PoC é dividida em dois arquivos de orquestração independentes:
-
-* **`docker-compose-keycloak.yml`**: Camada de Identidade (IdP). Responsável pela autenticação e emissão de tokens JWT.
-* **`docker-compose-openziti.yml`**: Camada de Rede (Control & Data Plane). Responsável por autorizar o acesso aos serviços baseando-se na confiança do token do Keycloak.
+Os serviços estão separados para permitir escalabilidade independente, mas utilizam uma rede compartilhada para comunicação segura entre o plano de controle e o provedor de identidade.
 
 ---
 
-## 2. Descrição dos Serviços
+## 2. Estrutura de Portas e Acessos
 
-### Camada de Identidade (`keycloak-db` & `keycloak`)
-
-* **Keycloak**: Atua como o *Identity Broker*. Ele recebe as requisições de login, delega a autenticação para o **Microsoft Entra ID** via OIDC/SAML e emite um JWT assinado para o OpenZiti.
-* **PostgreSQL**: Banco de dados persistente para armazenar configurações de Realms, Clients e metadados de usuários.
-
-### Camada Zero Trust (`ziti-controller` & `ziti-edge-router`)
-
-* **Ziti Controller**: O "cérebro" da rede. Gerencia as políticas de acesso e valida os tokens JWT do Keycloak. Em produção (14k usuários), este componente opera em cluster HA.
-* **Ziti Edge Router**: O "braço" da rede. Funciona como o gateway de entrada para os usuários. Ele não possui portas de entrada abertas para a internet pública (com exceção da porta de link), tornando a rede "invisível".
-* **Ziti Admin Console (ZAC)**: Interface gráfica para gestão da malha, disponível na porta `8443`.
+| Serviço | Porta Externa | URL de Acesso | Descrição |
+| --- | --- | --- | --- |
+| **Ziti Controller** | `1280` | `https://localhost:1280` | API principal e registro de clientes. |
+| **Ziti Admin Console** | `8444` | `https://localhost:8444` | Interface gráfica de gestão (ZAC). |
+| **Keycloak Web** | `8080` | `http://localhost:8080` | Painel de administração do IdP. |
+| **Keycloak HTTPS** | `8443` | `https://localhost:8443` | Reservado para uso com certificados TLS. |
 
 ---
 
-## 3. Configuração do Ambiente
+## 3. Preparação e Execução
 
-### Passo 1: Subir a Infraestrutura
+### Passo 1: Criar a rede compartilhada
+
+Antes de iniciar os containers, a rede externa deve existir:
 
 ```bash
-# Iniciar o Keycloak
+docker network create ziti-shared-net
+
+```
+
+### Passo 2: Iniciar os serviços
+
+Suba os arquivos em terminais separados ou em sequência:
+
+```bash
+# Iniciar Camada de Identidade
 docker-compose -f docker-compose-keycloak.yml up -d
 
-# Iniciar o OpenZiti
+# Iniciar Camada Zero Trust
 docker-compose -f docker-compose-openziti.yml up -d
 
 ```
 
-### Passo 2: Configurar o Auto-Enrollment (Escalabilidade)
+---
 
-Para suportar os 14.000 usuários sem criação manual, execute o script de automação no Controller:
+## 4. Configuração do Auto-Enrollment (Escala de k usuários)
 
-1. **JWT Signer**: Registra a chave pública do Keycloak no Ziti.
-2. **Auth Policy**: Define o Keycloak como método primário de entrada.
-3. **Auto-Enrollment**: Habilita a criação automática da "identidade" no Ziti no primeiro login do usuário via Entra ID.
+Para automatizar a entrada de usuários vindos do **Entra ID** via Keycloak, execute o comando abaixo dentro do container do Controller.
+
+> **Nota:** Utilizamos o DNS interno `http://keycloak:8080` para o Ziti buscar as chaves (JWKS), enquanto o `issuer` aponta para onde o usuário final autentica.
+
+```bash
+docker exec -it ziti-controller ziti edge create ext-jwt-signer "keycloak-automation" \
+  --claims-property "email" \
+  --issuer "http://localhost:8080/realms/ziti-realm" \
+  --jwks-endpoint "http://keycloak:8080/realms/ziti-realm/protocol/openid-connect/certs" \
+  --external-id-claim "email" \
+  --auto-enrollment-enabled
+
+```
 
 ---
 
-## 4. Fluxo de Acesso do Usuário
+## 5. Mapeamento de Grupos (Entra ID -> Ziti)
 
-1. O usuário abre o **Ziti Desktop Edge**.
-2. Seleciona "Autenticação via Provedor Externo".
-3. É redirecionado para o login da Microsoft (Entra ID).
-4. Após o sucesso, o OpenZiti verifica se o e-mail do usuário possui permissão (**Service Policy**).
-5. O acesso ao recurso interno é liberado sem exposição de IPs ou portas no firewall.
+Para que a autorização seja dinâmica, configure no Keycloak:
+
+1. **Client Scope**: Crie um escopo que mapeie os grupos do Azure para uma claim chamada `roles` no JWT.
+2. **OpenZiti Posture Check**: Crie um check do tipo `ext-jwt` que valide se o valor "Financeiro" está presente na claim `roles`.
+
+---
+
+## 6. Próximos Passos para Validação
+
+* [ ] **Teste de Conectividade**: Validar se o Controller alcança o endpoint do Keycloak:
+`docker exec ziti-controller curl -v http://keycloak:8080/realms/ziti-realm`
+* [ ] **Provisionamento**: Realizar o primeiro login com um usuário de teste e verificar se a identidade foi criada automaticamente no console (`https://localhost:8444`).
+* [ ] **Substituição da VPN**: Configurar um serviço simples (ex: um servidor web interno) e tentar acessá-lo via Ziti Desktop Edge sem estar na rede local.
 
 ---
 
-## 5. Considerações para Produção (elevado número de usuários)
 
-| Item | Recomendação PoC | Recomendação Produção |
-| --- | --- | --- |
-| **Banco de Dados** | Docker Volume (Local) | DB Gerenciado (RDS/Azure SQL) |
-| **Alta Disponibilidade** | Única Instância | Cluster de 3 Controllers (Raft) |
-| **Distribuição** | Localhost | 4 Sites Geográficos com Edge Routers locais |
-| **Certificados** | Auto-assinados | PKI Corporativa ou Let's Encrypt |
-
----
-6. Integração de Grupos: Keycloak + Entra ID + OpenZiti
-
-Para gerenciar milhares de usuários, utilizaremos Policies baseadas em Claims. 
-O objetivo é que o OpenZiti leia o grupo "Financeiro" vindo do Entra ID e conceda acesso automaticamente.
-
-A. No Keycloak (Mapeamento do Entra ID)
-
-    Vá em Identity Providers > Entra ID (seu provedor configurado).
-
-    Acesse a aba Mappers.
-
-    Crie um novo Mapper:
-
-        Name: claim-groups-from-azure
-
-        Mapper Type: Attribute Importer
-
-        Social Attribute: groups (ou o nome da claim enviada pelo Azure).
-
-        User Attribute Name: groups
-
-B. No Keycloak (Inclusão no Token JWT)
-
-    Vá em Client Scopes e crie um escopo chamado ziti-permissions.
-
-    Em Mappers, adicione um User Attribute:
-
-        User Attribute: groups
-
-        Token Claim Name: roles (o OpenZiti costuma ler esta claim para autorização).
-
-        Multivalued: On
-
-    Associe este Client Scope ao seu Client do OpenZiti como "Default".
-
-C. No OpenZiti (Posture Checks)
-
-Agora, configuramos o OpenZiti para exigir que a claim roles contenha o valor específico para liberar um serviço.
-Bash
-
-# 1. Criar um Posture Check que valida o grupo dentro do JWT
-ziti edge create posture-check ext-jwt "check-financeiro" \
-  --signer-name "keycloak-automation" \
-  --claims-property "roles" \
-  --claims-value "id-do-grupo-azure-financeiro"
-
-# 2. Criar uma Service Policy que une o Posture Check ao serviço
-ziti edge create service-policy "acesso-financeiro-restrito" Dial \
-  --identity-roles "#external-users" \
-  --service-roles "#financeiro-services" \
-  --posture-check-roles "check-financeiro"
-
-Por que esta abordagem é vital para muitos usuários?
-
-    Zero Toque no Ziti: Se o RH move um usuário de "Vendas" para "Financeiro" no Entra ID, o próximo JWT emitido pelo Keycloak terá a nova claim. O OpenZiti atualizará o acesso em tempo real sem você abrir o console.
-
-    Segurança Granular: Mesmo que um usuário consiga "burlar" a identidade, ele não terá o Posture Check (a claim assinada pelo Keycloak), e o Edge Router cortará a conexão no nível do pacote.
-
-    Auditoria: Os logs do Ziti mostrarão exatamente qual ext-jwt permitiu aquele acesso, facilitando conformidade com a LGPD/GDPR.

@@ -8,12 +8,10 @@ services:
       - ZITI_USER=admin
       - ZITI_PWD=password
     ports:
-      - "1280:1280" # API do Controller
-      - "8443:8443" # Console (ZAC)
-    volumes:
-      - ziti_data:/var/openziti
+      - "1280:1280"
+      - "8444:8443" # Ziti Admin Console
     networks:
-      - ziti-net
+      - ziti-shared-net
 
   ziti-edge-router:
     image: openziti/quickstart:latest
@@ -25,13 +23,10 @@ services:
       - ZITI_CTRL_PORT=1280
     command: /var/openziti/scripts/run-router.sh edge-router
     ports:
-      - "3022:3022" # Porta de link do Router
+      - "3022:3022"
     networks:
-      - ziti-net
+      - ziti-shared-net
 
 networks:
-  ziti-net:
-    driver: bridge
-
-volumes:
-  ziti_data:
+  ziti-shared-net:
+    external: true

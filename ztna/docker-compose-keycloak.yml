@@ -2,14 +2,12 @@ services:
   keycloak-db:
     image: postgres:15
     container_name: keycloak-db
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
       POSTGRES_PASSWORD: password
     networks:
-      - identity-net
+      - ziti-shared-net
 
   keycloak:
     image: quay.io/keycloak/keycloak:latest
@@ -27,12 +25,10 @@ services:
       KC_HOSTNAME: localhost
     ports:
       - "8080:8080"
+      - "8443:8443"
     networks:
-      - identity-net
+      - ziti-shared-net
 
 networks:
-  identity-net:
-    driver: bridge
-
-volumes:
-  postgres_data:
+  ziti-shared-net:
+    external: true
