@@ -34,8 +34,9 @@ GOOGLE_CLIENT_SECRET=seu_secret_aqui
 # Segurança Flask
 FLASK_SECRET=uma_string_longa_e_aleatoria
 
-🚀 Guia de Deploy Passo a Passo
-1. Preparação no Google Cloud
+# 🚀 Guia de Deploy Passo a Passo
+
+##1. Preparação no Google Cloud
 
     Acesse o Google Cloud Console.
 
@@ -51,7 +52,7 @@ FLASK_SECRET=uma_string_longa_e_aleatoria
 
     Copie o ID e a Chave Secreta para o seu arquivo .env.
 
-2. Configuração do Host Local (DNS de Teste)
+##2. Configuração do Host Local (DNS de Teste)
 
 Como o domínio ubuntuserverjuarez.com ainda não está registrado, você deve "enganar" seu sistema operacional:
 
@@ -59,7 +60,7 @@ Como o domínio ubuntuserverjuarez.com ainda não está registrado, você deve "
 
     Windows: Abra o Bloco de Notas como Administrador no caminho C:\Windows\System32\drivers\etc\hosts e adicione a mesma linha.
 
-3. Organização de Arquivos
+##3. Organização de Arquivos
 
 Certifique-se de que a estrutura de pastas está correta:
 
@@ -69,7 +70,7 @@ Certifique-se de que a estrutura de pastas está correta:
 
     deploy.sh (Na raiz do projeto)
 
-4. Execução do Deploy
+##4. Execução do Deploy
 
 No terminal, na raiz do projeto, execute os comandos:
 Bash
@@ -78,7 +79,7 @@ chmod +x deploy.sh
 ./deploy.sh
 
 O script irá gerar os certificados SSL autoassinados, construir a imagem Docker e subir os serviços em background.
-➕ Adicionando Novas Aplicações para Publicação
+#➕ Adicionando Novas Aplicações para Publicação
 
 O portal é expansível e dinâmico. Para publicar um novo site interno:
 
@@ -101,7 +102,7 @@ O portal é expansível e dinâmico. Para publicar um novo site interno:
 
     Reinicie: Execute ./deploy.sh para aplicar as mudanças e atualizar o dashboard.
 
-🛡️ Auditoria e Logs de Segurança
+#🛡️ Auditoria e Logs de Segurança
 
 O sistema registra todas as atividades críticas para monitoramento. Você pode acompanhar quem está acessando em tempo real através do Docker.
 
@@ -118,7 +119,7 @@ Principais Eventos Registrados:
 
     AUDIT - NEGADO: Registra tentativas de acesso de e-mails que não pertencem ao domínio permitido ou à lista do .env.
 
-⚠️ Observações de Segurança
+#⚠️ Observações de Segurança
 
     Certificados HTTPS: Os arquivos gerados são autoassinados. O navegador exibirá um alerta de "Conexão Não Segura"; aceite o risco para testar localmente. Em produção, utilize certificados válidos.
 
