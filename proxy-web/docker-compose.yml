@@ -1,0 +1,44 @@
+services:
+  proxy-flask:
+    build: ./proxy
+    container_name: proxy-flask
+    # Porta 443 exposta para o acesso via HTTPS no domínio ubuntuserverjuarez.com
+    ports:
+      - "443:443"
+    # Carrega as credenciais do Google e a Secret Key do arquivo .env
+    env_file:
+      - .env
+    environment:
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - FLASK_SECRET=${FLASK_SECRET}
+      - ALLOWED_USERS=${ALLOWED_USERS}
+    volumes:
+      - ./proxy/certs:/app/certs
+      # Mapeamento do diretório de templates para o Flask renderizar o dashboard.html
+      - ./proxy/templates:/app/templates
+    networks:
+      - backend
+    restart: always
+
+  nginx-internal:
+    image: nginx:alpine
+    container_name: nginx-internal
+    environment:
+      - NGINX_PORT=8080
+    # Configuração dinâmica para o Nginx ouvir na porta 8080 conforme solicitado[cite: 2]
+    command: >
+      /bin/sh -c "printf 'server { 
+        listen 8080; 
+        location / { 
+          root /usr/share/nginx/html; 
+          index index.html; 
+        } 
+      }' > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    networks:
+      - backend
+    restart: always
+
+networks:
+  backend:
+    driver: bridge
