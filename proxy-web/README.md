@@ -4,7 +4,7 @@ Este projeto implementa um **Portal de Aplicações Internas** utilizando Python
 
 ---
 
-## 🏗️ Estrutura do Projeto
+# 🏗️ Estrutura do Projeto
 
 * **`deploy.sh`**: Script de automação que prepara o ambiente, valida o `.env` e gera certificados SSL.
 * **`docker-compose.yml`**: Orquestrador que isola a rede interna e define os serviços (Proxy + Apps).
@@ -15,7 +15,7 @@ Este projeto implementa um **Portal de Aplicações Internas** utilizando Python
 
 ---
 
-## ⚙️ Configuração do arquivo `.env`
+# ⚙️ Configuração do arquivo `.env`
 
 Crie este arquivo na raiz do projeto para isolar as configurações sensíveis:
 
@@ -33,6 +33,7 @@ GOOGLE_CLIENT_SECRET=seu_secret_aqui
 
 # Segurança Flask
 FLASK_SECRET=uma_string_longa_e_aleatoria
+
 
 # 🚀 Guia de Deploy Passo a Passo
 
@@ -79,6 +80,9 @@ chmod +x deploy.sh
 ./deploy.sh
 
 O script irá gerar os certificados SSL autoassinados, construir a imagem Docker e subir os serviços em background.
+
+---
+
 #➕ Adicionando Novas Aplicações para Publicação
 
 O portal é expansível e dinâmico. Para publicar um novo site interno:
@@ -101,6 +105,7 @@ O portal é expansível e dinâmico. Para publicar um novo site interno:
     }
 
     Reinicie: Execute ./deploy.sh para aplicar as mudanças e atualizar o dashboard.
+
 
 #🛡️ Auditoria e Logs de Segurança
 
