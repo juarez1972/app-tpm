@@ -1,5 +1,47 @@
 Com a nova estrutura de rede compartilhada e a correção das portas, o seu `README.md` precisa refletir a arquitetura exata da PoC. Este documento agora serve como o guia operacional para subir o ambiente e validar a integração.
 
+# Antes de tudo, vamos subir e testar o Openziti sozinho
+Edite um arquivo .env e ajuste a senha e o que mais quiser
+
+
+    # OpenZiti Variables
+    ZITI_IMAGE=openziti/quickstart
+    ZITI_VERSION=latest
+
+    # the user and password to use
+    # Leave password blank to have a unique value generated or set the password explicitly
+    ZITI_USER=admin
+    ZITI_PWD=Coloque_senha_segura
+
+    ZITI_INTERFACE=0.0.0.0
+
+    # controller name, address/port information
+    ZITI_CTRL_NAME=ziti-controller
+    ZITI_CTRL_EDGE_ADVERTISED_ADDRESS=ziti-edge-controller
+    ZITI_CTRL_ADVERTISED_ADDRESS=ziti-controller
+    #ZITI_CTRL_EDGE_IP_OVERRIDE=10.10.10.10
+    #ZITI_CTRL_EDGE_ADVERTISED_PORT=8441
+    #ZITI_CTRL_ADVERTISED_PORT=8440
+
+    # The duration of the enrollment period (in minutes), default if not set. shown - 7days
+    ZITI_EDGE_IDENTITY_ENROLLMENT_DURATION=10080
+    ZITI_ROUTER_ENROLLMENT_DURATION=10080
+
+    # router address/port information
+    #ZITI_ROUTER_NAME=ziti-edge-router
+    #ZITI_ROUTER_ADVERTISED_ADDRESS=ziti-edge-router
+    #ZITI_ROUTER_PORT=8442
+    #ZITI_ROUTER_IP_OVERRIDE=10.10.10.10
+    #ZITI_ROUTER_LISTENER_BIND_PORT=8444
+    #ZITI_ROUTER_ROLES=public
+
+Agora execute o docker-compose:
+    $docker-compose -f docker-compose-openziti up -d
+
+Acesse via web para concluir as configurações, usando a senha que está no .env:
+    https://ipdamaquina:8443/login
+
+
 ---
 
 # PoC: Migração VPN para ZTNA com OpenZiti & Keycloak
