@@ -1,0 +1,14 @@
+base256==1.0.1
+certifi==2023.7.22
+cffi==1.15.1
+charset-normalizer==2.0.12
+cryptography==40.0.2
+hvac==1.2.1
+idna==3.4
+prompt-toolkit==3.0.36
+pycparser==2.21
+pyhcl==0.4.5
+pytotp==3
+requests==2.27.1
+urllib3==1.26.16
+wcwidth==0.2.6
