@@ -2,8 +2,15 @@
 GREEN='\033[0;32m'
 NC='\033[0m'
 
-# Carrega variáveis do .env para o script usar no certificado
-export $(grep -v '^#' .env | xargs)
+# Carrega variáveis do .env de forma segura
+if [ -f .env ]; then
+    set -a            # Ativa exportação automática
+    source .env       # Lê o arquivo
+    set +a            # Desativa exportação automática
+else
+    echo "Erro: Arquivo .env não encontrado!"
+    exit 1
+fi
 
 echo -e "${GREEN}### Iniciando Deploy para ${EXTERNAL_DOMAIN} ###${NC}"
 
@@ -17,6 +24,7 @@ if [ ! -f proxy/certs/fullchain.pem ]; then
     -subj "/C=BR/ST=DF/L=Brasilia/O=TI/CN=${EXTERNAL_DOMAIN}"
 fi
 
+# Sobe os containers
 docker-compose down
 docker-compose up --build -d
 
