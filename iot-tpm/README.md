@@ -48,9 +48,9 @@ Crie um arquivo `.env` na raiz do projeto para armazenar as credenciais:
 
 ```env
 # Configurações da App
-APP_USER=cliente-otp
-APP_PASS=senha-aleatoria-123
-OTP_SECRET=M3WC34V7LQWG6HR6K6HAVO23GPNRFFKA
+APP_USER='cliente-otp'
+APP_PASS='senha-aleatoria-123'
+OTP_SECRET='semente_otp'
 
 # Configurações do Vault Externo
 VAULT_ADDR=http://host.docker.internal:8200
