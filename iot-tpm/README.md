@@ -1,12 +1,3 @@
-Aqui está o ficheiro **README.md** formatado e pronto para ser utilizado no seu repositório.
-
-Seu arquivo README.md está pronto
-[file-tag: README.md]
-
----
-
-### **Conteúdo do README.md**
-
 # Projeto IoT Secure: Autenticação HOTP/TOTP com TPM e Vault
 
 Este projeto implementa uma arquitetura robusta de cliente-servidor para dispositivos IoT, focada em segurança multicamada. A solução combina autenticação de dois fatores (2FA) via **OTP (One-Time Password)**, gestão centralizada de segredos no **HashiCorp Vault** e validação de integridade de hardware através de **TPM (Trusted Platform Module)**.
