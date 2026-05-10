@@ -57,8 +57,8 @@ Este projeto está licenciado sob a Licença MIT - consulte o arquivo [LICENSE](
 
 ---
 **Desenvolvido pelos pesquisdores da PUC-PR
-** [Juarez de Oliveira] juarez.oliveira@pucpr.edu.br
-** [Juliano Sartori Langaro] juliano.langaro@pucpr.edu.br
-** [Fellipe M. Veiga] fellipe.veiga@pucpr.edu.br
-sob a orientação do Prof. Doutor Altair Olivo Santin altair.santin@pucpr.br
+1. ** [Juarez de Oliveira, M.Sc.] juarez.oliveira@pucpr.edu.br
+2. ** [Juliano Sartori Langaro, M.Sc.] juliano.langaro@pucpr.edu.br
+3. ** [Fellipe Medeiros Veiga, M.Sc.] fellipe.veiga@pucpr.edu.br
+4. ** [Altair Olivo Santin, PhD.] altair.santin@pucpr.br *Orientador
 
