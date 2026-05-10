@@ -44,6 +44,14 @@ As implementações específicas de código que suportam esta arquitetura podem 
 * Docker e Docker Compose instalados.
 * Bibliotecas `tss2` para interação com o hardware.
 
+* Criar ambiente virtual para o Python
+    $ cd caminho/do/projeto
+    $ python -m venv .venv
+    $ source .venv/bin/activate
+    $ pip install -r requirements.txt
+
+    para desativar: deactivate
+
 ## 5. Arquitetura Lógica
 
 1.  **Boot:** O sistema valida o estado do firmware via TPM.
