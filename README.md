@@ -1,104 +1,19 @@
-# APP-TPM 
-# Esta é uma Aplicação Web em Contêiner com Segurança via TPM.
+#Ferramenta de Pentest automatizado integrado com Gemini
 
-# Passo 1 
-Habilite o TPM no VirtualBox, caso esteja utilizando virtualização
+#Preparação do Ambiente
+python -m venv venv/
+source venv/bin/activate
+pip install google-genai python-dotenv
 
-# Passo 2
-Atualize o Sistema Operacional Linux
+#Estrutura do diretório
+config.env                                     
+passwords.txt                                  
+pentest.py                                      
+users.txt
+teste_gemini.py
 
-sudo apt update && sudo apt upgrade -y
+#Execução de teste conexão com Gemini
+python teste_gemini.py
 
-# Passo 3
-Instale as dependencias do docker docker-ce, docker-ce-cli, containerd.io e docker-compose-plugin, de acordo com o recomendado.
-
-# Passo 4
-Instale os pacotes para o sistema interagir com o TPM do host:
-
-sudo apt install tpm2-tools tpm2-abrmd -y
-
-# Passo 5 
-Verifique se o Linux reconheceu corretamente o dispositivo vTPM passado pelo VirtualBox. 
-O kernel do Linux expõe o TPM como um dispositivo de caractere no sistema de arquivos. 
-Execute o seguinte comando:
-
-ls -l /dev/tpm*
-
-# Passo 56
-Para validar a arquitetura completa, siga este procedimento passo a passo dentro do terminal da sua VM Linux, dentro da pasta com todos os arquivos baixados do git.
-# Preparar o Segredo Lacrado: 
-    chmod +x setup_secret.sh
-    sudo ./setup_secret.sh
-    sudo chown -R usuario:usuario sealed.ctx
-    python -m venv venv/
-    source venv/bin/activate
-# Se der erro quando subir o container precisa apagar a imager e recriar
-    docker system prune
-    
-# Construir e Iniciar a Aplicação com Docker Compose: 
- 
-  docker compose up --build
-# Observar o Sucesso da Autenticação:
-Analise os logs de saída no terminal. Você deverá ver as mensagens de log da aplicação app.py, indicando uma sequência de sucesso:
-
-# Acessar a Aplicação:
-Acesse http://<IP_DA_VM>:8000. 
-Você deverá ver a mensagem: "Hello, World! A aplicação está rodando após a verificação bem-sucedida do TPM."
-
-# Demonstrar o Cenário de Falha:
-Para provar que o portão de segurança está funcionando, simule um cenário onde o contêiner não tem acesso ao TPM.
-Pressione Ctrl+C no terminal para parar a aplicação.
-Edite o arquivo docker-compose.yml e comente ou remova a seção devices.
-Execute novamente o comando para iniciar a aplicação:
-
-docker compose up --build
-Observe os logs de saída. Desta vez, a aplicação deve falhar. Você verá mensagens de erro como:
-
-    FALHA NA AUTENTICAÇÃO DO TPM: Não foi possível deslacrar o segredo.
-    Stderr: ERROR:tcti:src/tss2-tcti/tcti-device.c:452:Tss2_Tcti_Device_Init() Failed to open device file /dev/tpm0: No such file or directory
-    A verificação do TPM falhou. A aplicação será encerrada.
-O contêiner será encerrado com um código de erro, demonstrando que a autenticação via TPM é um pré-requisito obrigatório para a execução.
-
-# Avançando a Arquitetura: Rumo à Atestação Pronta para Produção:
-Agora vamos testar a arquitetura utilizando o Keylime
-
-# Seal e Unseal do Vault - Anote os valores das chaves 
-docker exec -it -e "VAULT_ADDR=http://127.0.0.1:8200" vault vault operator init   
-docker exec -it -e "VAULT_ADDR=http://127.0.0.1:8200" vault vault operator unseal ***************************************
-docker exec -it -e "VAULT_ADDR=http://127.0.0.1:8200" vault vault operator unseal ***************************************
-docker exec -it -e "VAULT_ADDR=http://127.0.0.1:8200" vault vault operator unseal ***************************************
-
- # Verificando se o Vault está no ar - página web 
- http://192.168.56.101:8200 (ou o ip da maquina virtual)
-
-# Novos Testes a ser realizados:
-  proteger o cliente do twingate no tpm - zerotrust 
-  proteger o cliente do twingate no vault protegido
-  proteger o server com enclave  - por exemplo com OTP
-  testar alguma aplicação em OT, como raspberry
-
-
-# Uso do Git Hub:
-    Adicionar arquivos que estao no diretorio:
-    $ git add .
-    Informações sobre o Commit:
-    $ git commit -m 'mensagem'
-    Enviar alterações do diretório local para remoto no Git:
-    $ git push -uf origin main
-
-# Configurações do PYTHON
-    Para atualizar os requisitos de bibliotecas do Python:
-    Requisitos de instalações que ficarão no pacote:
-    $ pip freeze > requirements.txt
-    Para instalar os requisitos de bibliotecas em um novo ambiente virtual
-    $ pip install -r requirements.txt
-    Criar um ambiente virtual do Python:
-    $ python3 -m venv venv (rodar dentro da pasta do projeto)
-    Habilitar o ambiente virtual criado:
-    $ source venv/bin/activate
-
-
-
-
-
-
+#Execução do Pentest
+python pentest

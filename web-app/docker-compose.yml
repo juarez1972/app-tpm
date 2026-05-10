@@ -4,7 +4,7 @@ services:
   webapp:
     build: .
     ports:
-     - "8000:5000"
+     - "80:5000"
     devices:
      - "/dev/tpm0:/dev/tpm0"
      - "/dev/tpmrm0:/dev/tpmrm0"
