@@ -87,3 +87,48 @@ python cliente_iot.py
 * **Comunicação Docker-Host:** O servidor utiliza `host.docker.internal` para comunicar com o Vault que corre fora do contentor.
 * **Resiliência:** O uso de volumes Docker garante que os logs de segurança não sejam perdidos em caso de reinicialização do serviço.
 * **Hardening:** O código do servidor não expõe o `OTP_SECRET` em logs, apenas o utiliza para validação em memória.
+
+## 7. # Projeto IoT Secure: MQTT via TLS com TPM e Vault
+
+Esta versão do projeto substitui a API REST por comunicação via protocolo **MQTT sobre TLS (MQTTS)**, garantindo menor latência e maior segurança em canais de comunicação persistentes.
+
+## Alterações Principais
+- **Protocolo:** Migração de HTTP/REST para MQTT (Porta 8883 padrão para TLS).
+- **Segurança de Transporte:** Implementação obrigatória de certificados X.509 (CA, Server e Client).
+- **Modelo:** Mudança para arquitetura Pub/Sub (Publicador/Subscritor).
+
+## Estrutura
+- `./servidor_mqtt/`: Subscriber que valida os tokens e consulta o Vault.
+- `cliente_mqtt.py`: Publisher que valida o TPM e envia os códigos OTP.
+- `./certs/`: Diretório onde devem ser depositados os certificados `.crt` e `.key`.
+
+## Execução
+1. Configure o seu Broker MQTT (ex: Mosquitto) para aceitar conexões TLS.
+2. Atualize o arquivo `.env` com os caminhos dos certificados.
+3. Inicie o servidor: `python servidor_mqtt/main.py`
+4. Inicie o cliente: `python cliente_mqtt.py`
+
+*Nota: O fluxo de validação TPM no cliente e a integração com Vault no servidor permanecem ativos.*
+
+## Geração de certificados digitais
+1. Como utilizar:
+
+    Instale a dependência:
+    Bash
+
+    pip install cryptography
+
+    Execute o script:
+    Bash
+
+    python gerar_certificados.py
+
+    Distribuição dos arquivos:
+
+        No Servidor MQTT (Broker): Você precisará do ca.crt, server.crt e server.key.
+
+        No Cliente IoT: Você precisará apenas do ca.crt para que ele possa confiar no certificado apresentado pelo servidor.
+
+2.  Observação sobre o SAN (Subject Alternative Name):
+
+O script inclui host.docker.internal e localhost no certificado. Isso é vital para que o cliente não rejeite a conexão por "Hostname Mismatch". Se você for rodar em IPs específicos na sua rede, adicione-os na lista x509.SubjectAlternativeName dentro do script.

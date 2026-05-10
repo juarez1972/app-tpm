@@ -15,6 +15,5 @@ wcwidth==0.2.6
 Flask>=2.0.0
 requests>=2.25.0
 pycryptodome>=3.10
-fastapi>=0.136.1
-uvicorn>=0.40.0
+paho-mqtt>=2.0.0
 
