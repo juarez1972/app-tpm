@@ -67,6 +67,7 @@ A arquitetura baseia-se na premissa de que a segurança baseada apenas em softwa
     Confira se os módulos do kernel relacionados a TPM estão carregados:
     $ lsmod | grep tpm.
     Se aparecer linhas como tpm_tis, tpm_tis_core, tpm, tpm_crb etc., o suporte ao TPM está ativo no kernel.
+  
 * Verificando via ferramentas TPM2
     Se você já instalou o pacote tpm2-tools, pode ainda fazer:
     $ sudo tpm2_getrandom 4 — se retornar bytes, o TPM está funcional.
@@ -104,9 +105,9 @@ A arquitetura baseia-se na premissa de que a segurança baseada apenas em softwa
     Em ambientes com containers, ajuste mapeamentos de dispositivo (/dev/isgx ou /dev/sgx/enclave) e permissões de segurança do Docker/Podman conforme indicado em tutoriais de SGX com containers.
 
 ## 4.3. Suporte ao TDX no host linux:
-Para instalar e habilitar Intel TDX em um host Ubuntu 24.04, você precisa de hardware compatível (Xeon com TDX), BIOS configurada, kernel/stack TDX instalados e um stack de virtualização (QEMU/libvirt) preparado para criar e rodar VMs confidenciais (TDs). [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    Para instalar e habilitar Intel TDX em um host Ubuntu 24.04, você precisa de hardware compatível (Xeon com TDX), BIOS configurada, kernel/stack TDX instalados e um stack de virtualização (QEMU/libvirt) preparado para criar e rodar VMs confidenciais (TDs). [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
 
-## Pré‑requisitos de hardware e sistema
+*  1. Pré‑requisitos de hardware e sistema
 - Use processadores Intel Xeon com suporte a TDX (Sapphire Rapids, Emerald Rapids, Xeon 6, etc.). [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
 - Instale Ubuntu Server 24.04 LTS “puro” (imagem genérica) como sistema base no host. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
 - Certifique‑se de que o firmware/BIOS do servidor suporta TME/TME‑MT/TDX; isso normalmente aparece em servidores recentes com Xeon de 4ª geração ou mais novos. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
@@ -117,271 +118,262 @@ Exemplo de comando para atualizar o sistema antes de começar:
 sudo apt update && sudo apt full-upgrade -y
 sudo reboot
 ```
-## Habilitar TDX na BIOS
+
+*  2. Habilitar TDX na BIOS
 Entre na BIOS/UEFI do servidor e ative as opções de criptografia de memória e TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
 Os nomes exatos variam, mas a documentação da Canonical/Intel sugere algo nesta linha: [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
 
-Na seção de CPU / Processor / Socket Configuration:
+    Na seção de CPU / Processor / Socket Configuration:
 
-- Memory Encryption (TME) → Enable  
-- Total Memory Encryption Bypass → Enable (opcional, melhora desempenho de VMs normais). [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-- Total Memory Encryption Multi‑Tenant (TME‑MT) → Enable. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-- TME‑MT memory integrity → Disable. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-- Trust Domain Extension (TDX) → Enable. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-- TDX Secure Arbitration Mode Loader (SEAM Loader) → Enable (permite carregar TDX Module via BIOS/ESP). [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-- TME‑MT/TDX key split → algum valor não zero. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    - Memory Encryption (TME) → Enable  
+    - Total Memory Encryption Bypass → Enable (opcional, melhora desempenho de VMs normais). [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    - Total Memory Encryption Multi‑Tenant (TME‑MT) → Enable. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    - TME‑MT memory integrity → Disable. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    - Trust Domain Extension (TDX) → Enable. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    - TDX Secure Arbitration Mode Loader (SEAM Loader) → Enable (permite carregar TDX Module via BIOS/ESP). [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    - TME‑MT/TDX key split → algum valor não zero. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    
+    Na seção SGX:
+    - SW Guard Extensions (SGX) → Enable. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    Salve e reinicie o servidor. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
 
-Na seção SGX:
-
-- SW Guard Extensions (SGX) → Enable. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-
-Salve e reinicie o servidor. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-## Habilitar TDX no kernel (parâmetros de boot)
+*  3. Habilitar TDX no kernel (parâmetros de boot)
 No Ubuntu 24.04, você precisa ativar TDX no módulo KVM/intel com parâmetros de kernel. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
 
-1. Edite `/etc/default/grub`:
+    1. Edite `/etc/default/grub`:
+    ```bash
+    sudo nano /etc/default/grub
+    ```
 
-```bash
-sudo nano /etc/default/grub
-```
+    2. Em `GRUB_CMDLINE_LINUX_DEFAULT`, adicione:
+    ```text
+    nohibernate kvm_intel.tdx=1
+    ```
 
-2. Em `GRUB_CMDLINE_LINUX_DEFAULT`, adicione:
+    Exemplo:
+    ```text
+    GRUB_CMDLINE_LINUX_DEFAULT="quiet splash nohibernate kvm_intel.tdx=1"
+    ```
 
-```text
-nohibernate kvm_intel.tdx=1
-```
+    3. Atualize o GRUB e reinicie:
+    
+    ```bash
+    sudo update-grub
+    sudo reboot
+    ```
 
-Exemplo:
+    4. Verifique se os parâmetros foram aplicados:
+    ```bash
+    cat /proc/cmdline
+    # deve conter: nohibernate kvm_intel.tdx=1
+    ```
 
-```text
-GRUB_CMDLINE_LINUX_DEFAULT="quiet splash nohibernate kvm_intel.tdx=1"
-```
+    5. Confirme que o módulo TDX foi inicializado:
+    ```bash
+    sudo dmesg | grep -i tdx
+    ```
 
-3. Atualize o GRUB e reinicie:
+    Saída esperada (exemplo): [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    ```text
+    virt/tdx: BIOS enabled: private KeyID range 
 
-```bash
-sudo update-grub
-sudo reboot
-```
-
-4. Verifique se os parâmetros foram aplicados:
-
-```bash
-cat /proc/cmdline
-# deve conter: nohibernate kvm_intel.tdx=1
-```
-
-5. Confirme que o módulo TDX foi inicializado:
-
-```bash
-sudo dmesg | grep -i tdx
-```
-
-Saída esperada (exemplo): [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-
-```text
-virt/tdx: BIOS enabled: private KeyID range 
-
-A linha `virt/tdx: module initialized` indica que TDX está ativo no host. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    A linha `virt/tdx: module initialized` indica que TDX está ativo no host. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
 
 
-## Instalar o stack de virtualização com suporte a TDX
+
+*  4. Instalar o stack de virtualização com suporte a TDX
 Instale QEMU, OVMF com firmware TDX e libvirt. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
 
-```bash
-sudo apt update
-sudo apt install \
-  qemu-system-x86 \
-  ovmf-inteltdx \
-  libvirt-daemon-system \
-  libvirt-clients
-```
+    ```bash
+    sudo apt update
+    sudo apt install \
+      qemu-system-x86 \
+      ovmf-inteltdx \
+      libvirt-daemon-system \
+      libvirt-clients
+    ```
 
-- `qemu-system-x86`: QEMU com suporte a Intel TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-- `ovmf-inteltdx`: firmware UEFI (OVMF) preparado para TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-- `libvirt-daemon-system` e `libvirt-clients`: gerência de VMs via libvirt/virsh. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    - `qemu-system-x86`: QEMU com suporte a Intel TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    - `ovmf-inteltdx`: firmware UEFI (OVMF) preparado para TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    - `libvirt-daemon-system` e `libvirt-clients`: gerência de VMs via libvirt/virsh. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    
+*  5.   Verifique se o firmware TDX‑capable está presente:
+    ```bash
+    ls -l /usr/share/ovmf/OVMF.inteltdx.ms.fd
+    ```
+    
+    O arquivo deve existir e ter alguns MB. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    ## Usando o repositório canonical/tdx (atalho automatizado)
+    A Canonical fornece um repositório Git com scripts para configurar o host TDX, criar imagem TD e subir a VM. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
 
-Verifique se o firmware TDX‑capable está presente:
+*  6. Clone o repositório no host Ubuntu 24.04:
+    ```bash
+    git clone -b noble-24.04 https://github.com/canonical/tdx.git
+    cd tdx
+    ```
+    2. Opcionalmente ajuste o arquivo de configuração `setup-tdx-config` (por exemplo, se quiser que já instale componentes de atestação, defina `TDX_SETUP_ATTESTATION=1`). [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    
+*  7. Execute o script de setup de host:
+    ```bash
+    sudo ./setup-tdx-host.sh
+    sudo reboot
+    ```
+    
+    Esse script instala o stack TDX adequado, configura módulos, pacotes e ajustes adicionais para o host. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
 
-```bash
-ls -l /usr/share/ovmf/OVMF.inteltdx.ms.fd
-```
 
-O arquivo deve existir e ter alguns MB. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-## Usando o repositório canonical/tdx (atalho automatizado)
-A Canonical fornece um repositório Git com scripts para configurar o host TDX, criar imagem TD e subir a VM. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-
-1. Clone o repositório no host Ubuntu 24.04:
-
-```bash
-git clone -b noble-24.04 https://github.com/canonical/tdx.git
-cd tdx
-```
-
-2. Opcionalmente ajuste o arquivo de configuração `setup-tdx-config` (por exemplo, se quiser que já instale componentes de atestação, defina `TDX_SETUP_ATTESTATION=1`). [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-
-3. Execute o script de setup de host:
-
-```bash
-sudo ./setup-tdx-host.sh
-sudo reboot
-```
-
-Esse script instala o stack TDX adequado, configura módulos, pacotes e ajustes adicionais para o host. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-
-4. Depois do reboot, confirme novamente com:
-
-```bash
-sudo dmesg | grep -i tdx
-```
+*  8. Depois do reboot, confirme novamente com:
+    ```bash
+    sudo dmesg | grep -i tdx
+    ```
 
 Você deve ver `virt/tdx: module initialized` indicando que o host está pronto. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-## Criar imagem de guest (TD) baseada em Ubuntu
-Você pode usar duas abordagens principais: criar uma imagem TD nova ou converter uma VM existente. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-### Criar nova imagem TD com scripts Canonical
-Num sistema Ubuntu (pode ser o próprio host):
+*  9. Criar imagem de guest (TD) baseada em Ubuntu
+    Você pode usar duas abordagens principais: criar uma imagem TD nova ou converter uma VM existente. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+*  10. Criar nova imagem TD com scripts Canonical
+    Num sistema Ubuntu (pode ser o próprio host):
+    ```bash
+    cd tdx/guest-tools/image
+    sudo ./create-td-image.sh -v 24.04
+    ```
 
-```bash
-cd tdx/guest-tools/image
-sudo ./create-td-image.sh -v 24.04
-```
+    - Isso baixa uma cloud image do Ubuntu 24.04 e gera `tdx-guest-ubuntu-24.04-*.qcow2` com as customizações necessárias para rodar como TD. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    
+    Valores padrão (por exemplo, senha root `123456`) devem ser trocados em ambiente de produção. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+*  11. Converter imagem de VM existente em TD
+    Se você já tem uma VM Ubuntu 24.04/24.10:
+    
+    1. Suba a VM “normal”.  
+    2. Baixe/clonar o repositório `canonical/tdx` dentro da VM. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    3. Rode:
+    
+    ```bash
+    cd tdx
+    sudo ./setup-tdx-guest.sh
+    '```
 
-- Isso baixa uma cloud image do Ubuntu 24.04 e gera `tdx-guest-ubuntu-24.04-*.qcow2` com as customizações necessárias para rodar como TD. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    4. Desligue a VM: a imagem agora está preparada para TDX. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    ## Subir um TD usando QEMU diretamente
+    Com o host já TDX‑enabled e a imagem de guest pronta, você pode iniciar uma TD com QEMU usando um comando similar ao da documentação Ubuntu: [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
 
-Valores padrão (por exemplo, senha root `123456`) devem ser trocados em ambiente de produção. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-### Converter imagem de VM existente em TD
-Se você já tem uma VM Ubuntu 24.04/24.10:
+    ```bash
+    qemu-system-x86_64 \
+      -accel kvm \
+      -smp 32 \
+      -m 16G \
+      -cpu host \
+      -object '{"qom-type":"tdx-guest","id":"tdx","quote-generation-socket":{"type":"vsock","cid":"2","port":"4050"}}' \
+      -object memory-backend-ram,id=mem0,size=16G \
+      -machine q35,kernel_irqchip=split,confidential-guest-support=tdx,memory-backend=mem0 \
+      -bios /usr/share/ovmf/OVMF.inteltdx.ms.fd \
+      -nographic \
+      -nodefaults \
+      -vga none \
+      -drive file=tdx-guest-ubuntu-24.04-generic.qcow2,if=none,id=virtio-disk0 \
+      -device virtio-blk-pci,drive=virtio-disk0 \
+      -serial stdio
+    ```
 
-1. Suba a VM “normal”.  
-2. Baixe/clonar o repositório `canonical/tdx` dentro da VM. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-3. Rode:
+*  12.    Parâmetros TDX importantes: [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    
+    - `-object "qom-type":"tdx-guest"...`: cria o objeto TDX guest e configura canal vsock para quotes/atestado. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    - `-machine ... confidential-guest-support=tdx ...`: liga a máquina ao objeto TDX e usa memória protegida. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    - `-object memory-backend-ram...`: define o backend de RAM que será criptografado pelo TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    - `-bios /usr/share/ovmf/OVMF.inteltdx.ms.fd`: firmware UEFI com suporte TDX e Secure Boot. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
 
-```bash
-cd tdx
-sudo ./setup-tdx-guest.sh
-```
+*  13. Subir um TD via libvirt (virsh)
+    A documentação do Ubuntu mostra um XML de domínio libvirt com `aunchSecurity type='tdx'>` e memória marcada como privada. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
 
-4. Desligue a VM: a imagem agora está preparada para TDX. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-## Subir um TD usando QEMU diretamente
-Com o host já TDX‑enabled e a imagem de guest pronta, você pode iniciar uma TD com QEMU usando um comando similar ao da documentação Ubuntu: [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    Exemplo simplificado (arquivo `tdx-vm.xml`): [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    
+    ```xml
+    <domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
+      <name>tdx-guest</name>
+      <memory unit='GiB'>16</memory>
+      <memoryBacking>
+        <source type='anonymous'/>
+        <access mode='private'/>
+      </memoryBacking>
+      <vcpu placement='static'>16</vcpu>
+      <os>
+        <type arch='x86_64' machine='q35'>hvm</type>
+        oader type='rom' readonly='yes'>/usr/share/ovmf/OVMF.inteltdx.ms.fd</loader>
+        <boot dev='hd'/>
+      </os>
+      pu mode='host-passthrough'>
+        <topology sockets='1' cores='16' threads='1'/>
+      </cpu>
+      <devices>
+        <emulator>/usr/bin/qemu-system-x86_64</emulator>
+        <disk type='file' device='disk'>
+          <driver name='qemu' type='qcow2'/>
+          <source file='/var/lib/libvirt/images/tdx-guest-ubuntu-24.04-generic.qcow2'/>
+          <target dev='vda' bus='virtio'/>
+        </disk>
+        sole type='pty'>
+          <target type='virtio' port='1'/>
+        </console>
+      </devices>
+      aunchSecurity type='tdx'>
+        <policy>0x10000000</policy>
+        <quoteGenerationService>
+          <SocketAddress type='vsock' cid='2' port='4050'/>
+        </quoteGenerationService>
+      </launchSecurity>
+    </domain>
+    ```
 
-```bash
-qemu-system-x86_64 \
-  -accel kvm \
-  -smp 32 \
-  -m 16G \
-  -cpu host \
-  -object '{"qom-type":"tdx-guest","id":"tdx","quote-generation-socket":{"type":"vsock","cid":"2","port":"4050"}}' \
-  -object memory-backend-ram,id=mem0,size=16G \
-  -machine q35,kernel_irqchip=split,confidential-guest-support=tdx,memory-backend=mem0 \
-  -bios /usr/share/ovmf/OVMF.inteltdx.ms.fd \
-  -nographic \
-  -nodefaults \
-  -vga none \
-  -drive file=tdx-guest-ubuntu-24.04-generic.qcow2,if=none,id=virtio-disk0 \
-  -device virtio-blk-pci,drive=virtio-disk0 \
-  -serial stdio
-```
+*  14. Defina e inicie a VM:
+    ```bash
+    sudo virsh define tdx-vm.xml
+    sudo virsh start tdx-guest
+    sudo virsh console tdx-guest
+    ```
+    O campo `aunchSecurity type='tdx'>` e `memoryBacking` com `access mode="private"` são críticos para TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
 
-Parâmetros TDX importantes: [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-
-- `-object "qom-type":"tdx-guest"...`: cria o objeto TDX guest e configura canal vsock para quotes/atestado. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-- `-machine ... confidential-guest-support=tdx ...`: liga a máquina ao objeto TDX e usa memória protegida. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-- `-object memory-backend-ram...`: define o backend de RAM que será criptografado pelo TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-- `-bios /usr/share/ovmf/OVMF.inteltdx.ms.fd`: firmware UEFI com suporte TDX e Secure Boot. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-## Subir um TD via libvirt (virsh)
-A documentação do Ubuntu mostra um XML de domínio libvirt com `aunchSecurity type='tdx'>` e memória marcada como privada. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-
-Exemplo simplificado (arquivo `tdx-vm.xml`): [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-
-```xml
-<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
-  <name>tdx-guest</name>
-  <memory unit='GiB'>16</memory>
-  <memoryBacking>
-    <source type='anonymous'/>
-    <access mode='private'/>
-  </memoryBacking>
-  <vcpu placement='static'>16</vcpu>
-  <os>
-    <type arch='x86_64' machine='q35'>hvm</type>
-    oader type='rom' readonly='yes'>/usr/share/ovmf/OVMF.inteltdx.ms.fd</loader>
-    <boot dev='hd'/>
-  </os>
-  pu mode='host-passthrough'>
-    <topology sockets='1' cores='16' threads='1'/>
-  </cpu>
-  <devices>
-    <emulator>/usr/bin/qemu-system-x86_64</emulator>
-    <disk type='file' device='disk'>
-      <driver name='qemu' type='qcow2'/>
-      <source file='/var/lib/libvirt/images/tdx-guest-ubuntu-24.04-generic.qcow2'/>
-      <target dev='vda' bus='virtio'/>
-    </disk>
-    sole type='pty'>
-      <target type='virtio' port='1'/>
-    </console>
-  </devices>
-  aunchSecurity type='tdx'>
-    <policy>0x10000000</policy>
-    <quoteGenerationService>
-      <SocketAddress type='vsock' cid='2' port='4050'/>
-    </quoteGenerationService>
-  </launchSecurity>
-</domain>
-```
-
-Defina e inicie a VM:
-
-```bash
-sudo virsh define tdx-vm.xml
-sudo virsh start tdx-guest
-sudo virsh console tdx-guest
-```
-
-O campo `aunchSecurity type='tdx'>` e `memoryBacking` com `access mode="private"` são críticos para TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-## Verificar TDX dentro do guest
+*  14. Verificar TDX dentro do guest
 Dentro da VM (TD) Ubuntu 24.04:
 
-```bash
-sudo dmesg | grep -i tdx
-```
+    ```bash
+    sudo dmesg | grep -i tdx
+    ```
 
-Saída esperada: [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    Saída esperada: [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+    
+    ```text
+    tdx: Guest detected
+    systemd [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/): Detected confidential virtualization tdx.
+    ```
+    
+    Também verifique o dispositivo TDX guest:
+    
+    ```bash
+    ls -l /dev/tdx_guest
+    # deve existir como char device
+    ```
+    
+    Esses sinais confirmam que o guest está rodando como Trust Domain TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
 
-```text
-tdx: Guest detected
-systemd [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/): Detected confidential virtualization tdx.
-```
-
-Também verifique o dispositivo TDX guest:
-
-```bash
-ls -l /dev/tdx_guest
-# deve existir como char device
-```
-
-Esses sinais confirmam que o guest está rodando como Trust Domain TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-## (Opcional) Atestação remota com Canonical/Intel
-Se você precisar de atestação (por exemplo, usar Intel Tiber Trust Services), o repositório `canonical/tdx` inclui scripts para instalar SGX DCAP no host e Trust Authority CLI no guest. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-
-Em alto nível: [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-
-- No host: `cd tdx/attestation && sudo ./setup-attestation-host.sh` para instalar SGX DCAP, QGS, PCCS e registrar a plataforma na Intel PCS. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-- No guest: `cd tdx/attestation && ./setup-attestation-guest.sh` para instalar `trustauthority-cli`, depois usar `trustauthority-cli quote` e `trustauthority-cli token -c config.json` com a API key do Intel Tiber Trust Service. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-
-Essas etapas são mais avançadas e necessárias apenas se você for usar atestação remota em produção. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-
-***
-
-Você pretende usar TDX diretamente em bare metal local ou em cloud (por exemplo, Google Cloud/Outro CSP), para eu adaptar o passo‑a‑passo ao seu cenário específico?  
-
-   
+*  15.(Opcional) Atestação remota com Canonical/Intel
+    Se você precisar de atestação (por exemplo, usar Intel Tiber Trust Services), o repositório `canonical/tdx` inclui scripts para instalar SGX DCAP no host e Trust Authority CLI no guest. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    
+    Em alto nível: [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    
+    - No host: `cd tdx/attestation && sudo ./setup-attestation-host.sh` para instalar SGX DCAP, QGS, PCCS e registrar a plataforma na Intel PCS. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    - No guest: `cd tdx/attestation && ./setup-attestation-guest.sh` para instalar `trustauthority-cli`, depois usar `trustauthority-cli quote` e `trustauthority-cli token -c config.json` com a API key do Intel Tiber Trust Service. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    
+    Essas etapas são mais avançadas e necessárias apenas se você for usar atestação remota em produção. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+    
+    ***
+    
+    Você pretende usar TDX diretamente em bare metal local ou em cloud (por exemplo, Google Cloud/Outro CSP), para eu adaptar o passo‑a‑passo ao seu cenário específico?  
+    
+       
 ## 5. Arquitetura Lógica
-1.  **Boot:** O sistema valida o estado do firmware via TPM.
-2.  **Unseal:** O serviço de Segredos (Vault) solicita a chave de descriptografia ao TPM.
-3.  **Auth:** O usuário/serviço autentica-se via Zero Trust + HOTP.
-4.  **Transaction:** Os dados são trocados utilizando HMAC para garantir que não houve alteração no percurso.
+    1.  **Boot:** O sistema valida o estado do firmware via TPM.
+    2.  **Unseal:** O serviço de Segredos (Vault) solicita a chave de descriptografia ao TPM.
+    3.  **Auth:** O usuário/serviço autentica-se via Zero Trust + HOTP.
+    4.  **Transaction:** Os dados são trocados utilizando HMAC para garantir que não houve alteração no percurso.
 
 ## 6. Licença
 
