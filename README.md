@@ -93,8 +93,12 @@ A arquitetura baseia-se na premissa de que a segurança baseada apenas em softwa
     Use um teste simples de hardware, como o projeto SGX-hardware (test-sgx.c), compilando e executando para confirmar que a CPU, BIOS e driver estão corretos.
     No diretório SampleCode do SDK (por exemplo SampleEnclave ou LocalAttestation), faça make e rode o binário ./app para verificar se enclaves são criados em modo real ou simulado (SGX_MODE=HW ou SGX_MODE=SIM).
     Confirme que o serviço AESM (serviço de atestado da Intel) está rodando e escutando seu socket, pois vários exemplos de atestação remota dependem dele para funcionar corretamente.
+*  5.   Testes de SGX dentro da VM
+    Confirme se o driver está carregado no guest com dmesg | grep sgx e verificando se há dispositivos SGX (/dev/isgx ou /dev/sgx/enclave), o que indica que o kernel da VM está vendo a funcionalidade.
+    Compile e rode amostras do SDK (por exemplo repositórios de tutorial como intel-sgx-enclave-ubuntu-tutorial) dentro da VM, usando make e executando ./app para verificar criação de enclaves.
+    Caso apenas o modo simulado esteja disponível, ajuste a variável de ambiente SGX_MODE=SIM ao compilar/rodar os exemplos, o que permite desenvolver e testar sem acesso direto a SGX hardware.
 
-*  5. Validações adicionais e troubleshooting
+*  6. Validações adicionais e troubleshooting
     Se o driver não carrega, verifique novamente compatibilidade de kernel, opções de SGX no BIOS e mensagens de log do kernel relacionadas a SGX.
     Para problemas com enclaves falhando ou erros de atestação, consulte o guia de instalação oficial Intel SGX para Linux, que traz uma sequência detalhada de validações e erros comuns.
     Em ambientes com containers, ajuste mapeamentos de dispositivo (/dev/isgx ou /dev/sgx/enclave) e permissões de segurança do Docker/Podman conforme indicado em tutoriais de SGX com containers.
