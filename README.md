@@ -1,388 +1,639 @@
-# Arquitetura para Integração da Proteção de Segredos com Hardware e Software
+# Hybrid Zero Trust Architecture for Non-Interactive Authentication
 
-Este projeto apresenta uma arquitetura de referência para a gestão e proteção de segredos (credentials, chaves, certificados), integrando de forma holística camadas de hardware e software. A solução é focada em ambientes de alta criticidade, onde a proteção de dados em repouso, em trânsito e em uso é fundamental.
+> **Artigo de Referência:** "A Hybrid Zero Trust Architecture for Non-Interactive Authentication: Integrating Hardware Trust Anchors with Software-Defined Secret Management in Infrastructure as Code"  
+> Langaro, J. S.; Santin, A. O.; Viegas, E. K.; Veiga, F. M.; Oliveira, J. — PPGIa/PUCPR, Brazil.
 
-## 1. Visão Geral
+Este repositório contém a implementação de referência da arquitetura híbrida proposta no artigo acima. O protótipo integra **ancoragem de confiança em hardware** (TPM 2.0, Intel SGX, Intel TDX) com **gestão dinâmica de segredos por software** (HashiCorp Vault) e **micro-segmentação de rede** (Zero Trust Network Access — ZTNA), eliminando o problema do "Secret Zero" em ambientes de Infraestrutura como Código (IaC) e IoT.
 
-A arquitetura baseia-se na premissa de que a segurança baseada apenas em software é insuficiente. Ao ancorar a confiança no hardware (**TPM 2.0**) e estender essa confiança através de redes **Zero Trust** e cofres de senhas (**Vault**), criamos uma barreira robusta contra exfiltração de dados e acessos não autorizados.
+---
+
+## Sumário
+
+1. [Visão Geral da Arquitetura](#1-visão-geral-da-arquitetura)
+2. [Pilares de Segurança](#2-pilares-de-segurança)
+3. [Estrutura do Repositório](#3-estrutura-do-repositório)
+4. [Tecnologias Utilizadas](#4-tecnologias-utilizadas)
+5. [Configuração e Instalação](#5-configuração-e-instalação)
+   - 5.1 [Pré-requisitos gerais](#51-pré-requisitos-gerais)
+   - 5.2 [Suporte ao TPM no host Linux](#52-suporte-ao-tpm-no-host-linux)
+   - 5.3 [Suporte ao SGX no host Linux](#53-suporte-ao-sgx-no-host-linux)
+   - 5.4 [Suporte ao TDX no host Linux](#54-suporte-ao-tdx-no-host-linux)
+6. [Módulos do Protótipo](#6-módulos-do-protótipo)
+   - 6.1 [HOTP/HMAC (hotp/)](#61-hotphmac-hotp)
+   - 6.2 [Vault + TPM Auto-Unseal (vault-tpm/)](#62-vault--tpm-auto-unseal-vault-tpm)
+   - 6.3 [Cliente IoT com TPM (iot-tpm/)](#63-cliente-iot-com-tpm-iot-tpm)
+   - 6.4 [ZTNA com OpenZiti e Keycloak (ztna/)](#64-ztna-com-openziti-e-keycloak-ztna)
+   - 6.5 [Proxy Web (proxy-web/)](#65-proxy-web-proxy-web)
+   - 6.6 [Simulação Adversarial com LLM (pentest/)](#66-simulação-adversarial-com-llm-pentest)
+7. [Arquitetura Lógica do Fluxo nIA](#7-arquitetura-lógica-do-fluxo-nia)
+8. [Resultados Experimentais](#8-resultados-experimentais)
+9. [Roadmap](#9-roadmap)
+10. [Licença](#10-licença)
+11. [Autores](#11-autores)
+
+---
+
+## 1. Visão Geral da Arquitetura
+
+A arquitetura baseia-se na premissa de que segurança exclusivamente em software é insuficiente para ambientes de Autenticação Não-Interativa (nIA). Ao ancorar a chave mestra do HashiCorp Vault em um **TPM 2.0** e ao deslocar o cálculo HMAC para dentro do hardware, garante-se que as chaves criptográficas **nunca saiam do silício**, mesmo sob comprometimento total do sistema operacional (MITRE ATT&CK T1003).
+
+A camada de rede implementa **ZTNA** via OpenZiti ou Twingate, de modo que as credenciais ofuscadas por HOTP não possam ser reutilizadas fora de seu contexto estrito, neutralizando movimento lateral (T1021).
+
+**Overhead medido:** ~75 ms por transação nIA completa; **RTO do Vault** reduzido de ~3 minutos (unseal manual) para ~300 ms (auto-unseal via TPM).
+
+---
 
 ## 2. Pilares de Segurança
 
-### 🛡️ Proteção via Hardware (TPM 2.0)
-* **Root of Trust:** Utilização do *Trusted Platform Module* para gerar e armazenar chaves criptográficas que nunca deixam o hardware.
-* **Sealing:** Segredos do sistema são "selados" para o estado específico do hardware (PCRs), garantindo que só sejam acessíveis se o sistema não tiver sido adulterado.
+### 🛡️ Proteção via Hardware (TPM 2.0 / SGX / TDX)
+
+| Camada | Tecnologia | Proteção Oferecida |
+|---|---|---|
+| Servidores baseline | TPM 2.0 (dTPM/fTPM) | Boot integrity (PCRs), Vault auto-unseal, HOTP via tpm2-pytss |
+| Servidores críticos | Intel SGX + Gramine | Isolamento em enclave; memória cifrada pelo CPU (MEE) |
+| Nuvem confidencial | Intel TDX + vTPM | Trust Domain completo; hipevisor não acessa RAM da VM |
+| IoT / Edge | TPM 2.0 (Infineon SLB9670 / swtpm) | HMAC seed não exportável; contador monotônico em NVRAM |
+
+- **Root of Trust:** chaves geradas e armazenadas dentro do TPM com atributos `fixedtpm` e `fixedparent`.
+- **Sealing:** a unseal key do Vault é selada contra PCRs (0, 7), garantindo acesso apenas se o firmware não foi adulterado.
+- **Sequestro de seeds HOTP:** o segredo compartilhado é um *Restricted Keyed-Hash* no TPM NVRAM — rollback fisicamente impossível.
 
 ### 🔐 Gestão de Segredos (HashiCorp Vault)
-* **Centralização:** Gestão dinâmica de segredos com políticas de acesso estritas.
-* **Integração:** O Vault utiliza o TPM para proteger sua própria chave mestra (*unseal key*), eliminando a necessidade de intervenção humana no boot.
 
-### 🌐 Conectividade Zero Trust
-* **Rede Invisível:** Implementação via **OpenZiti** ou **Twingate**, garantindo que os serviços de segredos não possuam portas expostas na internet pública.
-* **Identidade Forte:** Cada componente da arquitetura possui uma identidade criptográfica única.
+- **Auto-unseal via PKCS#11 → TPM:** elimina intervenção humana no boot.
+- **Credenciais dinâmicas (TTL curto):** Vault emite tokens de curta duração para banco de dados e APIs via políticas IaC.
+- **Ciclo de vida:** `Gerada (plaintext no Vault)` → `Ofuscada (HOTP keystream em trânsito)` → `Descartada`.
 
-### 🔑 Autenticação e Integridade (HOTP & HMAC)
-* **Segundo Fator (HOTP):** Uso de *HMAC-based One-Time Password* para validação adicional em fluxos críticos de acesso.
-* **Ofuscação e Assinatura (HMAC):** Aplicação de HMAC para garantir a integridade das mensagens e ofuscar segredos em trânsito, impedindo ataques de *man-in-the-middle*.
+### 🌐 Conectividade Zero Trust (ZTNA)
 
-### 🚀 Roadmap: TEE com Intel TDX
-* **Proteção em Uso:** Planejamento para a implementação de *Trust Domain Extensions* (TDX) para isolar cargas de trabalho em hardware, protegendo os segredos mesmo contra administradores do host ou hipervisores comprometidos.
+- **Rede invisível:** OpenZiti (SDK embutido, sem portas abertas) ou Twingate (gerenciado).
+- **Validação contínua de postura:** o gateway ZTNA verifica identidade, saúde do dispositivo e localização antes de aceitar o HOTP.
+- **Micro-segmentação:** invalida sessões ao mudar de contexto (IP, dispositivo), bloqueando pivoting.
 
-## 3. Tecnologias Utilizadas
-* **Segurança de Hardware:** TPM 2.0, Intel TDX (em desenvolvimento).
-* **Software de Segurança:** HashiCorp Vault, OpenZiti, Twingate.
-* **Protocolos:** HOTP (RFC 4226), HMAC (RFC 2104), OIDC.
-* **Infraestrutura:** Docker, Terraform, Python, Shell Script.
+### 🔑 Autenticação HOTP Ancorada em Hardware
 
-## 4. Configuração e Instalação
-### Pré-requisitos
-* Sistema com suporte a TPM 2.0 (ou simulador `swtpm`).
-* Docker e Docker Compose instalados.
-* Bibliotecas `tss2` para interação com o hardware.
+O agente nIA utiliza `tpm2-pytss` para solicitar ao TPM o cálculo HMAC sem nunca expor a chave:
 
-* Criar ambiente virtual para o Python
-    $ cd caminho/do/projeto
-    $ python -m venv .venv
-    $ source .venv/bin/activate
-    $ pip install -r requirements.txt
-    para desativar: deactivate
+```python
+# Cálculo de HOTP delegado ao hardware (Layer 2 do artigo, Seção V)
+from tpm2_pytss import ESAPI
 
-## 4.1. Suporte ao TPM no host linux:  
-    Habilite o TPM na máquina virtual ou na Bios, se for o caso.
-    Instale os pacotes necessários:
-    $ sudo apt update
-    $ sudo apt install tpm2-tools
-    No Ubuntu/Linux você consegue verificar se o TPM está presente e habilitado usando alguns arquivos do sistema e comandos simples no terminal.
-    Verificando se o TPM existe
-    Use um destes comandos (pode rodar todos, se quiser):
-    Ver se existe dispositivo TPM 2.0 no sysfs:
-    $ ls /sys/class/tpm/
-    Se aparecer algo como tpm0 ou tpmrm0, há TPM disponível.
-    Ver se o diretório de segurança do TPM existe:
-    $ [[ -d $(ls -d /sys/kernel/security/tpm* 2>/dev/null | head -1) ]] && echo "TPM disponível" || echo "TPM ausente".
-    Ver dispositivos de caractere TPM em /dev:
-    $ ls /dev/tpm*
-    Se aparecer /dev/tpm0 e/ou /dev/tpmrm0, o kernel detectou o TPM.
+def generate_hardware_hotp(nv_index, key_handle):
+    ctx = ESAPI()
+    ctx.nv_increment(nv_index)          # incrementa contador monotônico no TPM
+    counter_val = ctx.nv_read(nv_index)
+    hmac_result = ctx.hmac(key_handle, counter_val)
+    return truncate_to_hotp(hmac_result) # chave nunca sai do chip
+```
 
-* Verificando módulos do kernel TPM
-    Confira se os módulos do kernel relacionados a TPM estão carregados:
-    $ lsmod | grep tpm.
-    Se aparecer linhas como tpm_tis, tpm_tis_core, tpm, tpm_crb etc., o suporte ao TPM está ativo no kernel.
-  
-* Verificando via ferramentas TPM2
-    Se você já instalou o pacote tpm2-tools, pode ainda fazer:
-    $ sudo tpm2_getrandom 4 — se retornar bytes, o TPM está funcional.
-    $ sudo tpm2_getcap properties-fixed | head — mostra capacidades e versão do TPM.
+```
+HOTP(K, C) = Truncate(HMAC-SHA-1_TPM(K, C))
+```
 
-## 4.2. Suporte ao SGX no host linux:
-    O processo envolve três grandes etapas: verificar suporte no hardware/BIOS, instalar driver/SDK/PSW do SGX e rodar amostras de teste para validar a instalação no Ubuntu  24.04.
-*   1. Pré‑requisitos e checagens
-    Verifique se a CPU suporta SGX (procure “sgx” nas flags da CPU ou use ferramentas como o repositório SGX-hardware).
-    No BIOS/UEFI, habilite SGX (modo Enabled ou Software Controlled) e desative Secure Boot se o driver não for assinado.
-    Garanta um kernel compatível e headers instalados, pois o módulo de kernel do SGX precisa casar com a versão do kernel (linux-headers-$(uname -r)).
- *  2. Instalação do driver SGX
-    Instale ferramentas de compilação necessárias (build‑essential, dkms, etc.), que são usadas para construir e carregar o módulo SGX no kernel.
-    Baixe o driver DCAP mais recente para sua distro (por exemplo via sgx_linux_x64_driver_${version}.bin do site da Intel) e execute o instalador com privilégios de administrador.
-    Como alternativa, clone o repositório intel/linux-sgx-driver, compile com make e copie o módulo isgx.ko para /lib/modules/$(uname -r)/kernel/drivers/intel/sgx, rodando depmod e modprobe isgx para carregar o módulo.
-    Verifique se o driver está ativo observando lsmod | grep sgx e a existência de dispositivos como /dev/isgx ou /dev/sgx/enclave, conforme a versão do driver.
-*   3. Instalação do SDK e PSW
-    Instale dependências de desenvolvimento (ocaml, automake/autoconf, cmake, python3, libssl‑dev, libcurl4‑openssl‑dev, libprotobuf‑dev, etc.), usadas para compilar o SDK e serviços de plataforma.
-    Clone o repositório intel/linux-sgx, execute make preparation para baixar toolchains adicionais e copiar ferramentas específicas para Ubuntu (por exemplo, scripts em external/toolset/ubuntu20.04 para /usr/local/bin).
-    Baixe e execute o instalador do SDK (sgx_linux_x64_sdk_${version}.bin) apontando para um diretório, geralmente /opt/intel/sgxsdk, e depois carregue o ambiente com source /opt/intel/sgxsdk/environment.
-    Instale o PSW e os serviços de lançamento/atestado (pacotes como libsgx-urts, libsgx-launch, libsgx-epid, libsgx-quote-ex a partir do repositório APT da Intel SGX).
+---
 
-*  4. Testes funcionais básicos
-    Use um teste simples de hardware, como o projeto SGX-hardware (test-sgx.c), compilando e executando para confirmar que a CPU, BIOS e driver estão corretos.
-    No diretório SampleCode do SDK (por exemplo SampleEnclave ou LocalAttestation), faça make e rode o binário ./app para verificar se enclaves são criados em modo real ou simulado (SGX_MODE=HW ou SGX_MODE=SIM).
-    Confirme que o serviço AESM (serviço de atestado da Intel) está rodando e escutando seu socket, pois vários exemplos de atestação remota dependem dele para funcionar corretamente.
-*  5.   Testes de SGX dentro da VM
-    Confirme se o driver está carregado no guest com dmesg | grep sgx e verificando se há dispositivos SGX (/dev/isgx ou /dev/sgx/enclave), o que indica que o kernel da VM está vendo a funcionalidade.
-    Compile e rode amostras do SDK (por exemplo repositórios de tutorial como intel-sgx-enclave-ubuntu-tutorial) dentro da VM, usando make e executando ./app para verificar criação de enclaves.
-    Caso apenas o modo simulado esteja disponível, ajuste a variável de ambiente SGX_MODE=SIM ao compilar/rodar os exemplos, o que permite desenvolver e testar sem acesso direto a SGX hardware.
+## 3. Estrutura do Repositório
 
-*  6. Validações adicionais e troubleshooting
-    Se o driver não carrega, verifique novamente compatibilidade de kernel, opções de SGX no BIOS e mensagens de log do kernel relacionadas a SGX.
-    Para problemas com enclaves falhando ou erros de atestação, consulte o guia de instalação oficial Intel SGX para Linux, que traz uma sequência detalhada de validações e erros comuns.
-    Em ambientes com containers, ajuste mapeamentos de dispositivo (/dev/isgx ou /dev/sgx/enclave) e permissões de segurança do Docker/Podman conforme indicado em tutoriais de SGX com containers.
+```
+app-tpm/
+├── hotp/               # Protótipo HOTP/TOTP cliente-servidor (Layer 2)
+│   ├── Client/         # Cliente Python com pyotp
+│   ├── Server/         # Servidor FastAPI com verificação TOTP
+│   └── antigos/        # Versões anteriores (histórico de desenvolvimento)
+│
+├── vault-tpm/          # Vault + auto-unseal via TPM (Layer 1 + 2)
+│   ├── vault-init/     # Inicializador: criptografa unseal keys com TPM
+│   ├── tpm-validator/  # Health check: TPM, arquivos .enc e Vault
+│   ├── docker-compose.yml
+│   └── vault-config.hcl
+│
+├── iot-tpm/            # Agente nIA para IoT com verificação de TPM (Layer 1)
+│   ├── client-iot/
+│   │   ├── client_rest_api/  # Cliente REST + pyotp + validação TPM
+│   │   └── client_mqtt/      # Cliente MQTT para IoT de baixa largura de banda
+│   └── server/
+│       ├── server_rest_api/  # Backend FastAPI + Docker Compose
+│       └── server_mqtt/      # Broker MQTT para mensagens IoT
+│
+├── ztna/               # PoC ZTNA com OpenZiti + Keycloak (Layer 3)
+│   └── docker-compose.yml
+│
+├── proxy-web/          # Proxy web de demonstração com dashboard
+│
+├── pentest/            # Simulação adversarial com LLM (Seção VI.A do artigo)
+│   ├── pentest.py      # Orquestrador básico (Nmap + OpenVAS)
+│   ├── pentestv2.py    # Versão com Google Gemini API
+│   └── pentestv3.py    # Versão completa: Cyber-Llama local (Ollama)
+│
+└── web-app/            # Aplicação de demonstração integrada
+```
 
-## 4.3. Suporte ao TDX no host linux:
-    Para instalar e habilitar Intel TDX em um host Ubuntu 24.04, você precisa de hardware compatível (Xeon com TDX), BIOS configurada, kernel/stack TDX instalados e um stack de virtualização (QEMU/libvirt) preparado para criar e rodar VMs confidenciais (TDs). [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+---
 
-*  1. Pré‑requisitos de hardware e sistema
-- Use processadores Intel Xeon com suporte a TDX (Sapphire Rapids, Emerald Rapids, Xeon 6, etc.). [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-- Instale Ubuntu Server 24.04 LTS “puro” (imagem genérica) como sistema base no host. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-- Certifique‑se de que o firmware/BIOS do servidor suporta TME/TME‑MT/TDX; isso normalmente aparece em servidores recentes com Xeon de 4ª geração ou mais novos. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+## 4. Tecnologias Utilizadas
 
-Exemplo de comando para atualizar o sistema antes de começar:
+| Categoria | Componente | Versão / Referência |
+|---|---|---|
+| Hardware Root of Trust | TPM 2.0 (ISO/IEC 11889) | Infineon SLB9670/SLB9665 ou swtpm |
+| Confidential Computing | Intel SGX (Gramine/LibOS) | DCAP driver |
+| Confidential VM | Intel TDX + vTPM | Sapphire Rapids+ |
+| TPM SW Stack | tpm2-tss, tpm2-tools, tpm2-pytss | TCG-compliant |
+| Secret Management | HashiCorp Vault (auto-unseal PKCS#11) | OSS |
+| ZTNA | OpenZiti (Apache 2.0), Twingate, NetBird | — |
+| IdP / MFA | Keycloak + Entra ID (OIDC/SAML) | — |
+| Autenticação nIA | HOTP (RFC 4226), HMAC (RFC 2104) | — |
+| Infraestrutura | Docker, Docker Compose, Terraform | — |
+| Linguagem | Python 3.10+, Shell Script | — |
+| Adversarial Simulation | Llama 3.x via Ollama / Google Gemini | Seção VI.A |
+
+---
+
+## 5. Configuração e Instalação
+
+### 5.1 Pré-requisitos gerais
+
+- Sistema com suporte a TPM 2.0 (ou simulador `swtpm` para CI/CD).
+- Docker e Docker Compose instalados.
+- Python 3.10+ com suporte a ambientes virtuais.
+
+```bash
+# Clonar o repositório
+git clone https://github.com/juarez1972/app-tpm.git
+cd app-tpm
+
+# Criar e ativar ambiente virtual Python
+python -m venv .venv
+source .venv/bin/activate
+
+# Instalar dependências de um módulo específico (ex: hotp/Client)
+pip install -r hotp/Client/requirements.txt
+
+# Para desativar o ambiente virtual
+deactivate
+```
+
+---
+
+### 5.2 Suporte ao TPM no host Linux
+
+#### Verificar presença do TPM
+
+```bash
+# Dispositivo TPM no sysfs
+ls /sys/class/tpm/
+# Esperado: tpm0 ou tpmrm0
+
+# Dispositivos de caractere em /dev
+ls /dev/tpm*
+# Esperado: /dev/tpm0 e/ou /dev/tpmrm0
+
+# Módulos do kernel TPM carregados
+lsmod | grep tpm
+# Esperado: tpm_tis, tpm_tis_core, tpm, tpm_crb, etc.
+```
+
+#### Instalar ferramentas TPM2
+
+```bash
+sudo apt update
+sudo apt install tpm2-tools
+
+# Validação funcional: deve retornar bytes aleatórios
+sudo tpm2_getrandom 4
+
+# Exibir capacidades e versão do TPM
+sudo tpm2_getcap properties-fixed | head
+```
+
+#### Provisionar HOTP no TPM (Sequência do artigo, Seção VI.B)
+
+```bash
+# 1. Auto-teste e inicialização
+tpm2_selftest --full
+tpm2_startup --clear
+
+# 2. Criar índice NV e contador monotônico
+tpm2_nvdefine -C o -s 8 \
+  -a "ownerread|ownerwrite|authread|authwrite|extend" \
+  -p nvpass 0x1500016
+
+# 3. Gerar chave HMAC restrita (nunca exportável)
+tpm2_createprimary -C o -g sha256 -G hmac -c primary.ctx
+tpm2_create -C primary.ctx -g sha256 -G hmac \
+  -u hmac.pub -r hmac.priv \
+  -a "restricted|sign|fixedtpm|fixedparent"
+
+# 4. Selar unseal key do Vault contra PCRs (boot integrity)
+tpm2_pcrread sha256:7
+tpm2_createpolicy --policy-pcr -l sha256:0,7 -L policy.pcr
+tpm2_create -C primary.ctx -i unseal.key \
+  -L policy.pcr -r seal.priv -u seal.pub -c seal.ctx
+```
+
+> Os atributos `fixedtpm` e `fixedparent` garantem que a chave **nunca saia do chip**, mesmo sob comprometimento total do SO.
+
+---
+
+### 5.3 Suporte ao SGX no host Linux
+
+O processo envolve três etapas: verificar suporte no hardware/BIOS, instalar driver/SDK/PSW e rodar amostras de teste.
+
+#### 1. Pré-requisitos e verificação
+
+```bash
+# Verificar flags SGX na CPU
+grep -m1 sgx /proc/cpuinfo
+```
+
+No BIOS/UEFI, habilite SGX (modo *Enabled* ou *Software Controlled*) e desative Secure Boot se o driver não for assinado. Instale os headers do kernel correspondentes:
+
+```bash
+sudo apt install linux-headers-$(uname -r) build-essential dkms
+```
+
+#### 2. Instalar o driver DCAP
+
+```bash
+# Opção 1: Baixar instalador binário da Intel
+wget https://download.01.org/intel-sgx/latest/linux-latest/distro/ubuntu22.04-server/sgx_linux_x64_driver_<versao>.bin
+chmod +x sgx_linux_x64_driver_<versao>.bin && sudo ./sgx_linux_x64_driver_<versao>.bin
+
+# Opção 2: Compilar do fonte
+git clone https://github.com/intel/linux-sgx-driver
+cd linux-sgx-driver && make
+sudo cp isgx.ko /lib/modules/$(uname -r)/kernel/drivers/intel/sgx/
+sudo depmod && sudo modprobe isgx
+
+# Verificar ativação
+lsmod | grep sgx
+ls /dev/sgx/enclave  # ou /dev/isgx conforme versão do driver
+```
+
+#### 3. Instalar SDK e PSW
+
+```bash
+# Dependências de compilação
+sudo apt install ocaml automake autoconf cmake python3 \
+  libssl-dev libcurl4-openssl-dev libprotobuf-dev
+
+# Baixar e instalar o SDK da Intel
+wget https://download.01.org/intel-sgx/latest/linux-latest/distro/ubuntu22.04-server/sgx_linux_x64_sdk_<versao>.bin
+chmod +x sgx_linux_x64_sdk_<versao>.bin
+sudo ./sgx_linux_x64_sdk_<versao>.bin --prefix /opt/intel
+source /opt/intel/sgxsdk/environment
+
+# Instalar PSW via repositório APT da Intel
+echo "deb [arch=amd64] https://download.01.org/intel-sgx/sgx_repo/ubuntu $(lsb_release -sc) main" \
+  | sudo tee /etc/apt/sources.list.d/intel-sgx.list
+sudo apt update && sudo apt install libsgx-urts libsgx-launch libsgx-epid libsgx-quote-ex
+```
+
+#### 4. Testar com amostras do SDK
+
+```bash
+cd /opt/intel/sgxsdk/SampleCode/SampleEnclave
+make SGX_MODE=HW    # ou SGX_MODE=SIM para ambientes sem hardware
+./app
+```
+
+> Confirme que o serviço AESM está ativo: `systemctl status aesmd`
+
+---
+
+### 5.4 Suporte ao TDX no host Linux
+
+Requer processadores Intel Xeon com TDX (Sapphire Rapids, Emerald Rapids, Xeon 6) e Ubuntu Server 24.04 LTS.
+
+#### 1. Atualizar o sistema
 
 ```bash
 sudo apt update && sudo apt full-upgrade -y
 sudo reboot
 ```
 
-*  2. Habilitar TDX na BIOS
-Entre na BIOS/UEFI do servidor e ative as opções de criptografia de memória e TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-Os nomes exatos variam, mas a documentação da Canonical/Intel sugere algo nesta linha: [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+#### 2. Habilitar TDX na BIOS/UEFI
 
-    Na seção de CPU / Processor / Socket Configuration:
+Na seção *CPU / Processor / Socket Configuration*, ative:
 
-    - Memory Encryption (TME) → Enable  
-    - Total Memory Encryption Bypass → Enable (opcional, melhora desempenho de VMs normais). [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    - Total Memory Encryption Multi‑Tenant (TME‑MT) → Enable. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    - TME‑MT memory integrity → Disable. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    - Trust Domain Extension (TDX) → Enable. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    - TDX Secure Arbitration Mode Loader (SEAM Loader) → Enable (permite carregar TDX Module via BIOS/ESP). [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    - TME‑MT/TDX key split → algum valor não zero. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    
-    Na seção SGX:
-    - SW Guard Extensions (SGX) → Enable. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    Salve e reinicie o servidor. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+| Opção | Valor |
+|---|---|
+| Memory Encryption (TME) | Enable |
+| Total Memory Encryption Multi-Tenant (TME-MT) | Enable |
+| TME-MT memory integrity | **Disable** |
+| Trust Domain Extension (TDX) | Enable |
+| TDX Secure Arbitration Mode Loader (SEAM Loader) | Enable |
+| TME-MT/TDX key split | Valor não zero |
+| SW Guard Extensions (SGX) | Enable |
 
-*  3. Habilitar TDX no kernel (parâmetros de boot)
-No Ubuntu 24.04, você precisa ativar TDX no módulo KVM/intel com parâmetros de kernel. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+#### 3. Habilitar TDX no kernel
 
-    1. Edite `/etc/default/grub`:
-    ```bash
-    sudo nano /etc/default/grub
-    ```
+```bash
+sudo nano /etc/default/grub
+# Adicione em GRUB_CMDLINE_LINUX_DEFAULT:
+# nohibernate kvm_intel.tdx=1
 
-    2. Em `GRUB_CMDLINE_LINUX_DEFAULT`, adicione:
-    ```text
-    nohibernate kvm_intel.tdx=1
-    ```
+sudo update-grub && sudo reboot
 
-    Exemplo:
-    ```text
-    GRUB_CMDLINE_LINUX_DEFAULT="quiet splash nohibernate kvm_intel.tdx=1"
-    ```
+# Verificar após o reboot
+cat /proc/cmdline           # deve conter: nohibernate kvm_intel.tdx=1
+sudo dmesg | grep -i tdx    # deve mostrar: virt/tdx: module initialized
+```
 
-    3. Atualize o GRUB e reinicie:
-    
-    ```bash
-    sudo update-grub
-    sudo reboot
-    ```
+#### 4. Instalar o stack de virtualização TDX
 
-    4. Verifique se os parâmetros foram aplicados:
-    ```bash
-    cat /proc/cmdline
-    # deve conter: nohibernate kvm_intel.tdx=1
-    ```
+```bash
+sudo apt install qemu-system-x86 ovmf-inteltdx libvirt-daemon-system libvirt-clients
+ls -l /usr/share/ovmf/OVMF.inteltdx.ms.fd  # deve existir com alguns MB
+```
 
-    5. Confirme que o módulo TDX foi inicializado:
-    ```bash
-    sudo dmesg | grep -i tdx
-    ```
+#### 5. Usar o atalho Canonical/TDX (recomendado)
 
-    Saída esperada (exemplo): [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    ```text
-    virt/tdx: BIOS enabled: private KeyID range 
+```bash
+git clone -b noble-24.04 https://github.com/canonical/tdx.git
+cd tdx
 
-    A linha `virt/tdx: module initialized` indica que TDX está ativo no host. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+# Configurar atestação (opcional)
+# TDX_SETUP_ATTESTATION=1  no arquivo setup-tdx-config
 
+sudo ./setup-tdx-host.sh
+sudo reboot
 
+# Criar imagem de guest TD
+cd tdx/guest-tools/image
+sudo ./create-td-image.sh -v 24.04
+# Gera: tdx-guest-ubuntu-24.04-*.qcow2
+# Troque a senha padrão (123456) antes de usar em produção.
+```
 
-*  4. Instalar o stack de virtualização com suporte a TDX
-Instale QEMU, OVMF com firmware TDX e libvirt. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
+#### 6. Iniciar uma Trust Domain (TD) via QEMU
 
-    ```bash
-    sudo apt update
-    sudo apt install \
-      qemu-system-x86 \
-      ovmf-inteltdx \
-      libvirt-daemon-system \
-      libvirt-clients
-    ```
+```bash
+qemu-system-x86_64 \
+  -accel kvm -smp 32 -m 16G -cpu host \
+  -object '{"qom-type":"tdx-guest","id":"tdx","quote-generation-socket":{"type":"vsock","cid":"2","port":"4050"}}' \
+  -object memory-backend-ram,id=mem0,size=16G \
+  -machine q35,kernel_irqchip=split,confidential-guest-support=tdx,memory-backend=mem0 \
+  -bios /usr/share/ovmf/OVMF.inteltdx.ms.fd \
+  -nographic -nodefaults -vga none \
+  -drive file=tdx-guest-ubuntu-24.04-generic.qcow2,if=none,id=virtio-disk0 \
+  -device virtio-blk-pci,drive=virtio-disk0 \
+  -serial stdio
+```
 
-    - `qemu-system-x86`: QEMU com suporte a Intel TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    - `ovmf-inteltdx`: firmware UEFI (OVMF) preparado para TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    - `libvirt-daemon-system` e `libvirt-clients`: gerência de VMs via libvirt/virsh. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    
-*  5.   Verifique se o firmware TDX‑capable está presente:
-    ```bash
-    ls -l /usr/share/ovmf/OVMF.inteltdx.ms.fd
-    ```
-    
-    O arquivo deve existir e ter alguns MB. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    ## Usando o repositório canonical/tdx (atalho automatizado)
-    A Canonical fornece um repositório Git com scripts para configurar o host TDX, criar imagem TD e subir a VM. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
+#### 7. Verificar TDX dentro do guest
 
-*  6. Clone o repositório no host Ubuntu 24.04:
-    ```bash
-    git clone -b noble-24.04 https://github.com/canonical/tdx.git
-    cd tdx
-    ```
-    2. Opcionalmente ajuste o arquivo de configuração `setup-tdx-config` (por exemplo, se quiser que já instale componentes de atestação, defina `TDX_SETUP_ATTESTATION=1`). [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    
-*  7. Execute o script de setup de host:
-    ```bash
-    sudo ./setup-tdx-host.sh
-    sudo reboot
-    ```
-    
-    Esse script instala o stack TDX adequado, configura módulos, pacotes e ajustes adicionais para o host. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-
-
-*  8. Depois do reboot, confirme novamente com:
-    ```bash
-    sudo dmesg | grep -i tdx
-    ```
-
-Você deve ver `virt/tdx: module initialized` indicando que o host está pronto. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-*  9. Criar imagem de guest (TD) baseada em Ubuntu
-    Você pode usar duas abordagens principais: criar uma imagem TD nova ou converter uma VM existente. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-*  10. Criar nova imagem TD com scripts Canonical
-    Num sistema Ubuntu (pode ser o próprio host):
-    ```bash
-    cd tdx/guest-tools/image
-    sudo ./create-td-image.sh -v 24.04
-    ```
-
-    - Isso baixa uma cloud image do Ubuntu 24.04 e gera `tdx-guest-ubuntu-24.04-*.qcow2` com as customizações necessárias para rodar como TD. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    
-    Valores padrão (por exemplo, senha root `123456`) devem ser trocados em ambiente de produção. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-*  11. Converter imagem de VM existente em TD
-    Se você já tem uma VM Ubuntu 24.04/24.10:
-    
-    1. Suba a VM “normal”.  
-    2. Baixe/clonar o repositório `canonical/tdx` dentro da VM. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    3. Rode:
-    
-    ```bash
-    cd tdx
-    sudo ./setup-tdx-guest.sh
-    '```
-
-    4. Desligue a VM: a imagem agora está preparada para TDX. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    ## Subir um TD usando QEMU diretamente
-    Com o host já TDX‑enabled e a imagem de guest pronta, você pode iniciar uma TD com QEMU usando um comando similar ao da documentação Ubuntu: [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-
-    ```bash
-    qemu-system-x86_64 \
-      -accel kvm \
-      -smp 32 \
-      -m 16G \
-      -cpu host \
-      -object '{"qom-type":"tdx-guest","id":"tdx","quote-generation-socket":{"type":"vsock","cid":"2","port":"4050"}}' \
-      -object memory-backend-ram,id=mem0,size=16G \
-      -machine q35,kernel_irqchip=split,confidential-guest-support=tdx,memory-backend=mem0 \
-      -bios /usr/share/ovmf/OVMF.inteltdx.ms.fd \
-      -nographic \
-      -nodefaults \
-      -vga none \
-      -drive file=tdx-guest-ubuntu-24.04-generic.qcow2,if=none,id=virtio-disk0 \
-      -device virtio-blk-pci,drive=virtio-disk0 \
-      -serial stdio
-    ```
-
-*  12.    Parâmetros TDX importantes: [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    
-    - `-object "qom-type":"tdx-guest"...`: cria o objeto TDX guest e configura canal vsock para quotes/atestado. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    - `-machine ... confidential-guest-support=tdx ...`: liga a máquina ao objeto TDX e usa memória protegida. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    - `-object memory-backend-ram...`: define o backend de RAM que será criptografado pelo TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    - `-bios /usr/share/ovmf/OVMF.inteltdx.ms.fd`: firmware UEFI com suporte TDX e Secure Boot. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-
-*  13. Subir um TD via libvirt (virsh)
-    A documentação do Ubuntu mostra um XML de domínio libvirt com `aunchSecurity type='tdx'>` e memória marcada como privada. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-
-    Exemplo simplificado (arquivo `tdx-vm.xml`): [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    
-    ```xml
-    <domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
-      <name>tdx-guest</name>
-      <memory unit='GiB'>16</memory>
-      <memoryBacking>
-        <source type='anonymous'/>
-        <access mode='private'/>
-      </memoryBacking>
-      <vcpu placement='static'>16</vcpu>
-      <os>
-        <type arch='x86_64' machine='q35'>hvm</type>
-        oader type='rom' readonly='yes'>/usr/share/ovmf/OVMF.inteltdx.ms.fd</loader>
-        <boot dev='hd'/>
-      </os>
-      pu mode='host-passthrough'>
-        <topology sockets='1' cores='16' threads='1'/>
-      </cpu>
-      <devices>
-        <emulator>/usr/bin/qemu-system-x86_64</emulator>
-        <disk type='file' device='disk'>
-          <driver name='qemu' type='qcow2'/>
-          <source file='/var/lib/libvirt/images/tdx-guest-ubuntu-24.04-generic.qcow2'/>
-          <target dev='vda' bus='virtio'/>
-        </disk>
-        sole type='pty'>
-          <target type='virtio' port='1'/>
-        </console>
-      </devices>
-      aunchSecurity type='tdx'>
-        <policy>0x10000000</policy>
-        <quoteGenerationService>
-          <SocketAddress type='vsock' cid='2' port='4050'/>
-        </quoteGenerationService>
-      </launchSecurity>
-    </domain>
-    ```
-
-*  14. Defina e inicie a VM:
-    ```bash
-    sudo virsh define tdx-vm.xml
-    sudo virsh start tdx-guest
-    sudo virsh console tdx-guest
-    ```
-    O campo `aunchSecurity type='tdx'>` e `memoryBacking` com `access mode="private"` são críticos para TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-
-*  14. Verificar TDX dentro do guest
-Dentro da VM (TD) Ubuntu 24.04:
-
-    ```bash
-    sudo dmesg | grep -i tdx
-    ```
-
-    Saída esperada: [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-    
-    ```text
-    tdx: Guest detected
-    systemd [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/): Detected confidential virtualization tdx.
-    ```
-    
-    Também verifique o dispositivo TDX guest:
-    
-    ```bash
-    ls -l /dev/tdx_guest
-    # deve existir como char device
-    ```
-    
-    Esses sinais confirmam que o guest está rodando como Trust Domain TDX. [cc-enabling.trustedservices.intel](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/06/guest_os_setup/)
-
-*  15.(Opcional) Atestação remota com Canonical/Intel
-    Se você precisar de atestação (por exemplo, usar Intel Tiber Trust Services), o repositório `canonical/tdx` inclui scripts para instalar SGX DCAP no host e Trust Authority CLI no guest. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    
-    Em alto nível: [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    
-    - No host: `cd tdx/attestation && sudo ./setup-attestation-host.sh` para instalar SGX DCAP, QGS, PCCS e registrar a plataforma na Intel PCS. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    - No guest: `cd tdx/attestation && ./setup-attestation-guest.sh` para instalar `trustauthority-cli`, depois usar `trustauthority-cli quote` e `trustauthority-cli token -c config.json` com a API key do Intel Tiber Trust Service. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    
-    Essas etapas são mais avançadas e necessárias apenas se você for usar atestação remota em produção. [intel](https://www.intel.fr/content/www/fr/fr/support/articles/000099762/processors/intel-xeon-processors.html)
-    
-    ***
-    
-    Você pretende usar TDX diretamente em bare metal local ou em cloud (por exemplo, Google Cloud/Outro CSP), para eu adaptar o passo‑a‑passo ao seu cenário específico?  
-    
-       
-## 5. Arquitetura Lógica
-    1.  **Boot:** O sistema valida o estado do firmware via TPM.
-    2.  **Unseal:** O serviço de Segredos (Vault) solicita a chave de descriptografia ao TPM.
-    3.  **Auth:** O usuário/serviço autentica-se via Zero Trust + HOTP.
-    4.  **Transaction:** Os dados são trocados utilizando HMAC para garantir que não houve alteração no percurso.
-
-## 6. Licença
-
-Este projeto está licenciado sob a Licença MIT - consulte o arquivo [LICENSE](LICENSE) para detalhes.
+```bash
+sudo dmesg | grep -i tdx
+# Esperado: "tdx: Guest detected"
+ls -l /dev/tdx_guest   # deve existir como char device
+```
 
 ---
-**Desenvolvido pelos pesquisdores da PUC-PR
-1. ** [Juarez de Oliveira, M.Sc.] juarez.oliveira@pucpr.edu.br
-2. ** [Juliano Sartori Langaro, M.Sc.] juliano.langaro@pucpr.edu.br
-3. ** [Fellipe Medeiros Veiga, M.Sc.] fellipe.veiga@pucpr.edu.br
-4. ** [Altair Olivo Santin, PhD.] altair.santin@pucpr.br *Orientador
 
+## 6. Módulos do Protótipo
+
+### 6.1 HOTP/HMAC (`hotp/`)
+
+Implementação de referência do pipeline HOTP/TOTP cliente-servidor (Layer 2 do artigo).
+
+```bash
+cd hotp
+
+# Iniciar o servidor (FastAPI, porta 5000)
+python Server/server.py
+# O endpoint GET /setup retorna o OTP_SECRET dinâmico para sincronização
+
+# Em outro terminal, obter o secret e configurar o cliente
+# Edite hotp/Client/client.py: OTP_SECRET = "<valor do /setup>"
+python Client/client.py
+```
+
+> **Atenção de segurança:** Em produção, substitua `FIXED_USER`, `FIXED_PASS` e `OTP_SECRET` por variáveis de ambiente. O HOTP do artigo é delegado ao TPM; o servidor atual usa `pyotp` como baseline para testes sem hardware.
+
+**Fluxo:**
+1. Cliente faz `POST /login` com credenciais → recebe `session_token`
+2. A cada 60 s: cliente gera TOTP e envia `POST /verify` com token + OTP
+3. Se OTP inválido, sessão é encerrada imediatamente
+
+### 6.2 Vault + TPM Auto-Unseal (`vault-tpm/`)
+
+Implementa o **Hardware Auto-Unseal** descrito na Seção V do artigo.
+
+```bash
+cd vault-tpm
+
+# Subir o ambiente completo (Vault + TPM Initializer + Validator)
+docker-compose up -d
+
+# Verificar status do sistema
+./system_status.sh
+
+# Testar integração TPM ↔ Vault
+./test_tpm_integration.sh
+```
+
+**Componentes:**
+- `vault-init/vault_initializer.py`: criptografa unseal keys com TPM real ou simulado; salva `.enc` para produção e `.txt` para depuração.
+- `tpm-validator/tpm_validator.py`: health check periódico (TPM, arquivos `.enc`, Vault) exposto na porta 8080.
+- `vault-config.hcl`: configuração PKCS#11 para delegação do unseal ao TPM.
+
+> **Nota:** Em modo dev (`VAULT_DEV_ROOT_TOKEN_ID=root`), o token padrão é `root`. Em produção, remova o modo dev e use apenas auto-unseal por TPM.
+
+### 6.3 Cliente IoT com TPM (`iot-tpm/`)
+
+Agente nIA para dispositivos IoT (Raspberry Pi 4/5, ARM64 Yocto) conforme Seção VI.B do artigo.
+
+```bash
+cd iot-tpm
+
+# Subir servidor (REST API + Docker)
+docker-compose up -d
+
+# Executar cliente REST (requer TPM ativo no host)
+pip install -r client-iot/client_rest_api/requirements.txt
+python client-iot/client_rest_api/client_iot.py
+
+# Alternativa MQTT (IoT de baixa largura de banda)
+python client-iot/client_mqtt/client_mqtt.py
+```
+
+> O cliente IoT verifica o TPM via `tpm2_getrandom` antes de autenticar. Se o TPM não estiver operacional, a autenticação é abortada — este é o comportamento esperado da arquitetura de dois canais descrita na Seção VI.D.
+
+### 6.4 ZTNA com OpenZiti e Keycloak (`ztna/`)
+
+PoC do Layer 3 (Network Enforcement) do artigo, validando substituição de VPN por ZTNA baseado em identidade.
+
+```bash
+cd ztna
+
+# 1. Criar rede compartilhada
+docker network create ziti-shared-net
+
+# 2. Configurar .env (copie e ajuste)
+cp .env.example .env   # crie se não existir
+# Defina: ZITI_PWD, ZITI_CTRL_EDGE_ADVERTISED_ADDRESS, etc.
+
+# 3. Subir camadas em ordem
+docker-compose -f backup/docker-compose-keycloak.yml up -d    # IdP
+docker-compose -f openziti/docker-compose-openziti.yml up -d  # ZTNA
+
+# 4. Acessar console de gestão
+# https://<ip>:8444  → ZAC (Ziti Admin Console)
+# http://<ip>:8080   → Keycloak
+```
+
+**Auto-enrollment para escala:**
+```bash
+docker exec -it ziti-controller ziti edge create ext-jwt-signer "keycloak-ztna" \
+  --claims-property "email" \
+  --issuer "http://localhost:8080/realms/ziti-realm" \
+  --jwks-endpoint "http://keycloak:8080/realms/ziti-realm/protocol/openid-connect/certs" \
+  --external-id-claim "email" \
+  --auto-enrollment-enabled
+```
+
+### 6.5 Proxy Web (`proxy-web/`)
+
+Dashboard de demonstração que agrega status dos componentes da arquitetura.
+
+```bash
+cd proxy-web
+docker-compose up -d
+# Acesse: http://localhost:<porta configurada>
+./deploy.sh   # para atualizar sem downtime
+```
+
+### 6.6 Simulação Adversarial com LLM (`pentest/`)
+
+Pipeline autônomo de red-team descrito na Seção VI.A do artigo, usando Llama 3.x local (via Ollama) ou Google Gemini.
+
+```bash
+cd pentest
+pip install openai gvm-tools python-dotenv requests
+
+# Configurar variáveis de ambiente
+cat > .env << 'EOF'
+OPENVAS_IP=192.168.x.x
+OPENVAS_USER=admin
+OPENVAS_PASS=sua_senha_forte
+# GEMINI_API_KEY=chave_opcional_para_modo_cloud
+EOF
+```
+
+| Versão | Descrição | Modelo LLM |
+|---|---|---|
+| `pentest.py` | Básico: Nmap + OpenVAS | — |
+| `pentestv2.py` | Com análise por IA em nuvem | Google Gemini 2.0 Flash |
+| `pentestv3.py` | Completo on-premises (produção) | Cyber-Llama / Llama 3.x (Ollama) |
+
+```bash
+# Instalar Ollama e modelo
+curl -fsSL https://ollama.com/install.sh | sh
+ollama run llama3
+
+# Executar simulação (pentestv3 — modo local)
+python pentestv3.py
+```
+
+> **Aviso legal:** Este software destina-se exclusivamente à **auditoria de segurança autorizada** e **pesquisa acadêmica**. O uso contra alvos sem permissão explícita é ilegal. Os autores não se responsabilizam pelo uso indevido.
+
+---
+
+## 7. Arquitetura Lógica do Fluxo nIA
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                    INFRAESTRUTURA IaC / IoT                      │
+│                                                                  │
+│  ┌─────────────┐     ┌──────────────────────────────────────┐   │
+│  │  TPM 2.0    │     │          HashiCorp Vault              │   │
+│  │  (Layer 1)  │────▶│  Auto-Unseal via PKCS#11 ← TPM Key   │   │
+│  │  SGX / TDX  │     │  Credenciais dinâmicas (TTL curto)    │   │
+│  └─────────────┘     └──────────────┬───────────────────────┘   │
+│                                     │                            │
+│                          ┌──────────▼──────────┐                │
+│                          │   nIA Agent          │                │
+│                          │   (tpm2-pytss)       │                │
+│                          │   HOTP = TPM_HMAC(K,C)│               │
+│                          └──────────┬──────────┘                │
+│                                     │ Payload Ofuscado           │
+│  ┌──────────────────────────────────▼──────────────────────────┐│
+│  │              ZTNA Gateway (OpenZiti / Twingate)              ││
+│  │   Valida: identidade + postura + localização + HOTP         ││
+│  └──────────────────────────────────┬───────────────────────────┘│
+│                                     │ Túnel TLS + ZTNA           │
+│                          ┌──────────▼──────────┐                │
+│                          │   Hub Services       │                │
+│                          │   (GLPI, MariaDB,    │                │
+│                          │    Nginx, NAS)        │                │
+│                          └─────────────────────┘                │
+└──────────────────────────────────────────────────────────────────┘
+
+Ciclo da credencial:
+  Gerada (plaintext no Vault) → Ofuscada (HOTP em trânsito) → Descartada
+```
+
+**Fluxo de boot e autenticação:**
+
+1. **Boot:** TPM valida integridade do firmware via PCRs.
+2. **Unseal:** Vault solicita unseal key ao TPM via PKCS#11 (~300 ms).
+3. **Auth:** Agente nIA gera HOTP via TPM e autentica ao ZTNA Gateway.
+4. **Verificação ZTNA:** postura do dispositivo + HOTP validados simultaneamente.
+5. **Transaction:** credencial trafega ofuscada por TLS + túnel ZTNA; apenas o Hub Services a desofusca.
+
+---
+
+## 8. Resultados Experimentais
+
+Conforme a avaliação completa na Seção VI do artigo:
+
+### Performance (1.000 requisições nIA concorrentes — Ubuntu 22.04 LTS)
+
+| Operação | Software-only | TPM (Tier 1) | SGX (Tier 2) | TDX (Tier 3) |
+|---|---|---|---|---|
+| Geração HOTP | ~2 ms | ~65 ms | ~85 ms | ~70 ms |
+| Autenticação Vault | ~45 ms | ~110 ms | ~130 ms | ~115 ms |
+| nIA End-to-End | ~120 ms | ~195 ms | ~225 ms | ~205 ms |
+| Auto-Unseal (RTO) | ~3 min | ~300 ms | ~350 ms | ~320 ms |
+
+### Segurança (LLM Red-Team — 500 cenários MITRE ATT&CK)
+
+| Tática MITRE | Técnica | Software-only | Arquitetura Híbrida |
+|---|---|---|---|
+| TA0001 | T1078 Valid Accounts | 8% | **0%** |
+| TA0004 | T1068 Privilege Escalation | 15% | **0%** |
+| TA0006 | T1003 OS Credential Dumping | 22% | **0%** |
+| TA0006 | T1552 Unsecured Credentials | 35% | **0%** |
+| TA0008 | T1021 Remote Services | 12% | **0%** |
+
+> Taxa média de bypass na arquitetura de software puro: **18,4%**. Na arquitetura híbrida: **0%** em 500 cenários.
+
+---
+
+## 9. Roadmap
+
+- [ ] **Post-Quantum TPM:** Avaliar CRYSTALS-Dilithium e SPHINCS+ em NV indices do TPM 2.0 para IoT de longo prazo.
+- [ ] **LLM Red-Team Federado:** Distribuir a simulação adversarial entre múltiplos modelos locais para detecção por consenso.
+- [ ] **Atestação TDX Cross-Cloud:** Padronizar atestação via vTPM entre AWS NitroTPM, Azure vTPM e GCP vTPM.
+- [ ] **Integração Terraform completa:** Módulo IaC com labels `standard | high | critical` para seleção automática de tier de proteção.
+
+---
+
+## 10. Licença
+
+Este projeto está licenciado sob a [Licença MIT](LICENSE).
+
+---
+
+## 11. Autores
+
+Desenvolvido pelos pesquisadores do Programa de Pós-Graduação em Informática (PPGIa) — PUCPR, Brasil.
+
+| # | Nome | E-mail |
+|---|---|---|
+| 1 | Juarez de Oliveira, M.Sc. | juarez.oliveira@pucpr.edu.br |
+| 2 | Juliano Sartori Langaro, M.Sc. | juliano.langaro@pucpr.edu.br |
+| 3 | Fellipe Medeiros Veiga, M.Sc. | fellipe.veiga@pucpr.edu.br |
+| 4 | Altair Olivo Santin, PhD. *(Orientador)* | altair.santin@pucpr.br |
+
+Financiado parcialmente pelo CNPq — bolsas nº 307706/2025-7 e 407879/2023-4.
