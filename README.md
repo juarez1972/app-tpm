@@ -102,21 +102,37 @@ app-tpm/
 │   └── antigos/        # Versões anteriores (histórico de desenvolvimento)
 │
 ├── vault-tpm/          # Vault + auto-unseal via TPM (Layer 1 + 2)
-│   ├── vault-init/     # Inicializador: criptografa unseal keys com TPM
-│   ├── tpm-validator/  # Health check: TPM, arquivos .enc e Vault
+│   ├── vault-init/         # Inicializador: criptografa unseal keys com TPM
+│   ├── tpm-validator/      # Health check: TPM, arquivos .enc e Vault
+│   ├── tpm-data/            # Unseal keys e root token selados (.enc)
+│   ├── scripts/
+│   │   └── setup_vault_policies.hcl  # Políticas de acesso do Vault
 │   ├── docker-compose.yml
-│   └── vault-config.hcl
+│   ├── system_status.sh
+│   └── test_tpm_integration.sh
 │
 ├── iot-tpm/            # Agente nIA para IoT com verificação de TPM (Layer 1)
 │   ├── client-iot/
-│   │   ├── client_rest_api/  # Cliente REST + pyotp + validação TPM
-│   │   └── client_mqtt/      # Cliente MQTT para IoT de baixa largura de banda
-│   └── server/
-│       ├── server_rest_api/  # Backend FastAPI + Docker Compose
-│       └── server_mqtt/      # Broker MQTT para mensagens IoT
+│   │   ├── client_rest_api/     # Cliente REST + pyotp + validação TPM
+│   │   │   └── client_iot.py
+│   │   └── client_mqtt/         # Cliente MQTT para IoT de baixa largura de banda
+│   │       └── client_mqtt.py
+│   ├── server/
+│   │   ├── server_rest_api/     # Backend FastAPI + integração Vault
+│   │   │   ├── main.py          # Versão com Vault
+│   │   │   ├── server_rest_api.py  # Versão standalone (testes sem Vault)
+│   │   │   └── docker-compose.yml
+│   │   └── server_mqtt/         # Subscriber MQTT + validação Vault
+│   │       └── server_mqtt.py
+│   ├── Dockerfile               # Entrypoint do contêiner IoT (TPM + Twingate)
+│   └── unseal_and_start.py      # Unseal TPM → inicializa cliente Twingate (ZTNA)
 │
 ├── ztna/               # PoC ZTNA com OpenZiti + Keycloak (Layer 3)
-│   └── docker-compose.yml
+│   ├── docker-compose.yml
+│   ├── check_poc.sh
+│   ├── backup/              # Variantes anteriores do compose
+│   └── openziti/
+│       └── docker-compose-openziti.yml
 │
 ├── proxy-web/          # Proxy web de demonstração com dashboard
 │
@@ -435,7 +451,7 @@ docker-compose up -d
 **Componentes:**
 - `vault-init/vault_initializer.py`: criptografa unseal keys com TPM real ou simulado; salva `.enc` para produção e `.txt` para depuração.
 - `tpm-validator/tpm_validator.py`: health check periódico (TPM, arquivos `.enc`, Vault) exposto na porta 8080.
-- `vault-config.hcl`: configuração PKCS#11 para delegação do unseal ao TPM.
+- `scripts/setup_vault_policies.hcl`: políticas de acesso mínimo para os serviços que interagem com o Vault.
 
 > **Nota:** Em modo dev (`VAULT_DEV_ROOT_TOKEN_ID=root`), o token padrão é `root`. Em produção, remova o modo dev e use apenas auto-unseal por TPM.
 
@@ -446,18 +462,29 @@ Agente nIA para dispositivos IoT (Raspberry Pi 4/5, ARM64 Yocto) conforme Seçã
 ```bash
 cd iot-tpm
 
-# Subir servidor (REST API + Docker)
-docker-compose up -d
+# 1. Unseal da chave via TPM e inicialização do cliente Twingate (ZTNA)
+#    Executado automaticamente pelo contêiner via ENTRYPOINT
+docker build -t iot-tpm-client .
+docker run --rm --privileged --device /dev/tpmrm0 iot-tpm-client
 
-# Executar cliente REST (requer TPM ativo no host)
+# 2. Subir servidor REST API (docker-compose está em server/server_rest_api/)
+cd server/server_rest_api/
+docker compose up --build -d
+
+# 3. Executar cliente REST (requer TPM ativo no host)
+cd ../../
 pip install -r client-iot/client_rest_api/requirements.txt
 python client-iot/client_rest_api/client_iot.py
 
 # Alternativa MQTT (IoT de baixa largura de banda)
+pip install -r client-iot/client_mqtt/requirements.txt
 python client-iot/client_mqtt/client_mqtt.py
+
+# Servidor MQTT (subscriber)
+python server/server_mqtt/server_mqtt.py
 ```
 
-> O cliente IoT verifica o TPM via `tpm2_getrandom` antes de autenticar. Se o TPM não estiver operacional, a autenticação é abortada — este é o comportamento esperado da arquitetura de dois canais descrita na Seção VI.D.
+> O cliente IoT verifica o TPM via `tpm2_getrandom` antes de autenticar. Se o TPM não estiver operacional, a autenticação é abortada — comportamento esperado pelo modelo de dois canais (Seção VI.D). O `unseal_and_start.py` é o entrypoint Docker que faz o unseal da chave de serviço via TPM e inicia o cliente Twingate antes de qualquer comunicação.
 
 ### 6.4 ZTNA com OpenZiti e Keycloak (`ztna/`)
 
@@ -637,3 +664,4 @@ Desenvolvido pelos pesquisadores do Programa de Pós-Graduação em Informática
 | 4 | Altair Olivo Santin, PhD. *(Orientador)* | altair.santin@pucpr.br |
 
 Financiado parcialmente pelo CNPq — bolsas nº 307706/2025-7 e 407879/2023-4.
+
