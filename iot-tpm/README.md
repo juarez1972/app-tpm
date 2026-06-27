@@ -344,20 +344,47 @@ python gerar_certificados.py
 
 ## 10. Build Multi-Arquitetura (ARM64)
 
-Para dispositivos ARM64 (ex.: Raspberry Pi 4/5), o build requer emulação via `docker buildx`:
+O `docker-compose.yml` define dois serviços com profiles separados: `dev` (x86_64) e `arm64` (Raspberry Pi 4/5). O profile deve ser especificado explicitamente em todos os comandos — sem ele, o Compose ignora ambos os serviços e não realiza nenhum build.
+
+### Em máquina virtual ou host x86_64 (emulação via QEMU)
+
+Esse setup é necessário **uma única vez** por máquina host:
 
 ```bash
-# Registrar interpretadores QEMU para emulação multi-arch
-docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+# 1. Registrar os interpretadores QEMU no kernel do host
+#    Ensina ao Linux que executáveis ARM devem ser traduzidos pelo QEMU
+docker run --privileged --rm tonistiigi/binfmt --install all
 
-# Build para ARM64 sem cache (garante integridade das dependências)
-docker buildx build --platform linux/arm64 --no-cache -t iot-tpm-client .
-
-# Subir o ambiente
-docker compose up -d
+# 2. Criar um builder multi-arch
+docker buildx create --use
 ```
 
+Após o setup, use sempre o `--profile` para indicar o ambiente:
+
+```bash
+# Build e execução local (x86_64)
+docker compose --profile dev up --build
+
+# Build ARM64 com emulação QEMU (testa o binário ARM no host x86)
+docker compose --profile arm64 up --build
+
+# Build sem cache (garante integridade das dependências)
+docker compose --profile arm64 build --no-cache
+docker compose --profile arm64 up
+```
+
+### No Raspberry Pi real (sem emulação)
+
+No dispositivo ARM64 nativo, o QEMU não é necessário. O mesmo `Dockerfile.arm64` roda diretamente:
+
+```bash
+docker compose --profile arm64 up --build
+```
+
+> **Nota:** Sem o `--profile`, o comando `docker compose build` retorna `No services to build` porque ambos os serviços estão protegidos por profile.
+
 ---
+
 
 ## 11. Notas de Implementação
 
