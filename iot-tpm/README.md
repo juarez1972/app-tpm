@@ -18,6 +18,7 @@ Este diretório implementa o **agente nIA (non-Interactive Authentication)** par
 6. [Execução](#6-execução)
    - 6.1 [Cliente REST + Servidor FastAPI](#61-cliente-rest--servidor-fastapi)
    - 6.2 [Cliente MQTT + Broker TLS](#62-cliente-mqtt--broker-tls)
+   - 6.3 [Entrypoint do Contêiner: unseal_and_start.py](#63-entrypoint-do-contêiner-unseal_and_startpy)
 7. [Fluxo de Segurança](#7-fluxo-de-segurança)
 8. [Validação dos Componentes](#8-validação-dos-componentes)
 9. [Geração de Certificados](#9-geração-de-certificados)
@@ -77,27 +78,31 @@ Se o TPM não estiver operacional, a autenticação é **abortada** — comporta
 
 ```text
 iot-tpm/
+├── Dockerfile                        # entrypoint Docker do contêiner cliente IoT + Twingate
+├── unseal_and_start.py               # entrypoint real do contêiner (ver Seção 6.3)
+├── sealed_key.pub                    # segredos selados pelo TPM (não exportáveis em plaintext)
+├── sealed_key.priv                   # segredos selados pelo TPM (não exportáveis em plaintext)
 ├── client-iot/
-│   ├── client_rest_api/          # Cliente REST com validação TPM + pyotp
-│   │   ├── client_iot.py         # Script principal do agente IoT (REST)
+│   ├── client_mqtt/
+│   │   ├── client_mqtt.py
 │   │   └── requirements.txt
-│   └── client_mqtt/              # Cliente MQTT com validação TPM + pyotp
-│       ├── client_mqtt.py        # Script principal do agente IoT (MQTT)
+│   └── client_rest_api/
+│       ├── client_iot.py
 │       └── requirements.txt
 ├── server/
-│   ├── server_rest_api/          # Backend FastAPI + Docker Compose
-│   │   ├── main.py               # API FastAPI: /login e /verify
-│   │   ├── Dockerfile
+│   ├── server_rest_api/
+│   │   ├── main.py
+│   │   ├── server_rest_api.py        # versão standalone para testes (sem Vault)
 │   │   ├── docker-compose.yml
 │   │   └── requirements.txt
-│   └── server_mqtt/              # Subscriber MQTT + validação Vault
-│       ├── main.py               # Subscriber: valida tokens e consulta Vault
+│   └── server_mqtt/
+│       ├── server_mqtt.py
 │       └── requirements.txt
-├── certs/                        # Certificados X.509 (CA, servidor, cliente)
+├── certs/                            # (planejado)
 ├── data/
-│   └── logs/                     # Logs de auditoria (volume Docker persistente)
-├── gerar_certificados.py         # Script de geração de certificados autoassinados
-├── .env                          # Variáveis de ambiente (não versionar)
+│   └── logs/                         # (planejado)
+├── gerar_certificados.py             # (planejado)
+├── .env                              # (planejado)
 └── README.md
 ```
 
@@ -130,6 +135,8 @@ sudo tpm2_getrandom 4
 ## 5. Configuração
 
 Crie o arquivo `.env` na raiz de `iot-tpm/` com base no modelo abaixo. **Nunca versione este arquivo.**
+
+> **Nota:** O arquivo `.env`, bem como `certs/`, `data/logs/` e `gerar_certificados.py`, são artefatos criados pelo usuário localmente e não estão versionados no repositório.
 
 ```env
 # ── Credenciais da aplicação ────────────────────────────────────
@@ -199,7 +206,7 @@ python client_iot.py
 cd server/server_mqtt/
 
 pip install -r requirements.txt
-python main.py
+python server/server_mqtt/server_mqtt.py
 ```
 
 **Cliente IoT (publisher):**
@@ -219,6 +226,19 @@ python client_mqtt.py
 | Modelo | Request/Response | Pub/Sub |
 | Latência | Maior | Menor |
 | Ideal para | APIs, payloads maiores | Telemetria, dispositivos restritos |
+
+---
+
+### 6.3 Entrypoint do Contêiner: `unseal_and_start.py`
+
+O `unseal_and_start.py` é o `ENTRYPOINT` real definido no `Dockerfile` do contêiner cliente IoT + Twingate. Ele executa o seguinte fluxo na inicialização:
+
+1. **Detecta o TPM** em `/dev/tpmrm0`. Se o dispositivo não estiver acessível, a inicialização é abortada.
+2. **Faz unseal da chave de serviço** via `tpm2_unseal`, gravando o resultado em tmpfs (`/run/secrets/service_key.json`) — nunca em disco persistente.
+3. **Configura e inicia o cliente Twingate** (ZTNA) utilizando a chave deserrada para estabelecer a identidade do dispositivo na rede Zero Trust.
+4. **Destrói a chave em plaintext da RAM** imediatamente após o setup do Twingate, minimizando a janela de exposição do segredo.
+
+Esse fluxo garante que a chave de serviço só existe em plaintext pelo tempo estritamente necessário para autenticação, e nunca é persistida em armazenamento não-volátil fora do TPM.
 
 ---
 
@@ -298,6 +318,8 @@ mosquitto_pub -h $MQTT_BROKER -p 8883 \
 
 Para o modo MQTT com TLS, utilize o script incluído:
 
+> **Nota:** O script `gerar_certificados.py`, bem como os diretórios `certs/` e `data/logs/`, são criados pelo usuário localmente e não estão versionados no repositório. Execute os passos abaixo no ambiente de desenvolvimento antes de iniciar os serviços.
+
 ```bash
 # Instalar dependência
 pip install cryptography
@@ -343,7 +365,9 @@ docker compose up -d
 - **Modo dev do Vault:** O `VAULT_TOKEN=root` é adequado apenas para desenvolvimento. Em produção, use políticas de mínimo privilégio com TTL curto.
 - **swtpm para CI/CD:** Em pipelines sem hardware TPM, use o simulador `swtpm` para testes automatizados. O comportamento é idêntico ao TPM físico para fins de validação de software.
 - **Hardening:** O código do servidor nunca expõe o `OTP_SECRET` em logs — apenas o utiliza para validação em memória, conforme recomendado na Seção V do artigo.
+- **unseal_and_start.py:** A chave de serviço deserrada fica em tmpfs (`/run/secrets/`) e é destruída da RAM imediatamente após o setup do Twingate, eliminando persistência em texto claro fora do TPM.
 
 ---
 
 *Parte do projeto [app-tpm](https://github.com/juarez1972/app-tpm) — PPGIa/PUCPR, Brasil.*
+
