@@ -1,244 +1,349 @@
-# Projeto IoT Secure: Autenticação HOTP/TOTP com TPM e Vault
+# IoT-TPM: Agente de Autenticação Não-Interativa com TPM 2.0
 
-Este projeto implementa uma arquitetura robusta de cliente-servidor para dispositivos IoT, focada em segurança multicamada. A solução combina autenticação de dois fatores (2FA) via **OTP (One-Time Password)**, gestão centralizada de segredos no **HashiCorp Vault** e validação de integridade de hardware através de **TPM (Trusted Platform Module)**.
+> Componente do protótipo descrito em:
+> **"A Hybrid Zero Trust Architecture for Non-Interactive Authentication"**
+> Langaro, J. S.; Santin, A. O.; Viegas, E. K.; Veiga, F. M.; Oliveira, J. — PPGIa/PUCPR, Brazil.
 
-## 1. Arquitetura do Sistema
+Este diretório implementa o **agente nIA (non-Interactive Authentication)** para dispositivos IoT, realizando autenticação contínua ancorada em hardware TPM 2.0. Suporta dois protocolos de transporte: **REST/HTTPS** e **MQTT sobre TLS (MQTTS)**.
 
-A solução está estruturada em dois componentes principais:
+---
 
-* **Servidor (API):** Desenvolvido em **FastAPI**, corre dentro de um contentor Docker. Gere o login inicial, valida tokens OTP e interage com o HashiCorp Vault para persistência e recuperação de segredos de configuração.
-* **Cliente IoT:** Um script Python desenhado para correr em dispositivos periféricos. Antes de qualquer comunicação, valida se o hardware TPM está presente e funcional. Utiliza um segredo partilhado para gerar tokens dinâmicos que mantêm a sessão ativa.
+## Sumário
 
-## 2. Tecnologias Utilizadas
+1. [Visão Geral](#1-visão-geral)
+2. [Arquitetura](#2-arquitetura)
+3. [Estrutura de Diretórios](#3-estrutura-de-diretórios)
+4. [Pré-requisitos](#4-pré-requisitos)
+5. [Configuração](#5-configuração)
+6. [Execução](#6-execução)
+   - 6.1 [Cliente REST + Servidor FastAPI](#61-cliente-rest--servidor-fastapi)
+   - 6.2 [Cliente MQTT + Broker TLS](#62-cliente-mqtt--broker-tls)
+7. [Fluxo de Segurança](#7-fluxo-de-segurança)
+8. [Validação dos Componentes](#8-validação-dos-componentes)
+9. [Geração de Certificados](#9-geração-de-certificados)
+10. [Build Multi-Arquitetura (ARM64)](#10-build-multi-arquitetura-arm64)
+11. [Notas de Implementação](#11-notas-de-implementação)
 
-* **Linguagem:** Python 3.11+
-* **API Framework:** FastAPI / Uvicorn
-* **Segurança de Hardware:** `tpm2-tools` (Interface para o TPM 2.0)
-* **Gestão de Segredos:** HashiCorp Vault (via biblioteca `hvac`)
-* **Criptografia/OTP:** `pyotp` (RFC 4226/6238) e `cryptography`
-* **Contentorização:** Docker e Docker Compose
+---
+
+## 1. Visão Geral
+
+O agente IoT-TPM implementa o **Layer 1** (Hardware Root of Trust) da arquitetura híbrida descrita no artigo de referência. Antes de qualquer comunicação, o dispositivo:
+
+1. Verifica a integridade e presença do TPM 2.0 via `tpm2_getrandom`.
+2. Usa o segredo provisionado no TPM NVRAM (atributos `fixedtpm` + `fixedparent`) para gerar tokens HOTP/TOTP sem expor a chave.
+3. Autentica-se de forma contínua ao servidor, que valida os tokens com o segredo armazenado no **HashiCorp Vault**.
+
+Se o TPM não estiver operacional, a autenticação é **abortada** — comportamento esperado pelo modelo de dois canais (Seção VI.D do artigo).
+
+---
+
+## 2. Arquitetura
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Dispositivo IoT                        │
+│                                                             │
+│  ┌───────────┐   tpm2_getrandom   ┌────────────────────┐   │
+│  │  TPM 2.0  │ ◀─────────────────▶│   nIA Agent        │   │
+│  │ (NVRAM)   │   HMAC(K, counter) │   cliente_iot.py   │   │
+│  └───────────┘                    └────────┬───────────┘   │
+└───────────────────────────────────────────┼───────────────┘
+                                            │
+                         REST/HTTPS  ou  MQTT sobre TLS
+                                            │
+┌───────────────────────────────────────────▼───────────────┐
+│                         Servidor                           │
+│                                                            │
+│  ┌─────────────┐     ┌──────────────────────────────────┐  │
+│  │  FastAPI    │     │       HashiCorp Vault             │  │
+│  │  (REST API) │────▶│  Recupera OTP_SECRET via hvac    │  │
+│  │  ou Broker  │     │  Valida token HOTP/TOTP           │  │
+│  │  MQTT       │     └──────────────────────────────────┘  │
+│  └─────────────┘                                           │
+└────────────────────────────────────────────────────────────┘
+```
+
+**Protocolos suportados:**
+
+| Protocolo | Porta padrão | Caso de uso |
+|-----------|-------------|-------------|
+| REST/HTTPS | 443 / 8000 | Integração com APIs, maior payload |
+| MQTT sobre TLS | 8883 | IoT de baixa largura de banda, telemetria |
+
+---
 
 ## 3. Estrutura de Diretórios
 
 ```text
-.
-├── servidor/
-│   ├── main.py            # Código fonte da API FastAPI
-│   ├── Dockerfile         # Definição da imagem Docker do servidor
-│   └── requirements.txt   # Dependências Python (FastAPI, hvac, etc.)
+iot-tpm/
+├── client-iot/
+│   ├── client_rest_api/          # Cliente REST com validação TPM + pyotp
+│   │   ├── client_iot.py         # Script principal do agente IoT (REST)
+│   │   └── requirements.txt
+│   └── client_mqtt/              # Cliente MQTT com validação TPM + pyotp
+│       ├── client_mqtt.py        # Script principal do agente IoT (MQTT)
+│       └── requirements.txt
+├── server/
+│   ├── server_rest_api/          # Backend FastAPI + Docker Compose
+│   │   ├── main.py               # API FastAPI: /login e /verify
+│   │   ├── Dockerfile
+│   │   ├── docker-compose.yml
+│   │   └── requirements.txt
+│   └── server_mqtt/              # Subscriber MQTT + validação Vault
+│       ├── main.py               # Subscriber: valida tokens e consulta Vault
+│       └── requirements.txt
+├── certs/                        # Certificados X.509 (CA, servidor, cliente)
 ├── data/
-│   └── logs/              # Logs de auditoria e acessos (Persistentes)
-├── .env                   # Variáveis de ambiente e segredos
-├── docker-compose.yml     # Orquestração do servidor e rede
-└── cliente_iot.py         # Script para o dispositivo IoT (com validação TPM)
-
+│   └── logs/                     # Logs de auditoria (volume Docker persistente)
+├── gerar_certificados.py         # Script de geração de certificados autoassinados
+├── .env                          # Variáveis de ambiente (não versionar)
+└── README.md
 ```
 
-## 4. Configuração e Instalação
+---
 
-### Pré-requisitos
+## 4. Pré-requisitos
 
-* Docker e Docker Compose instalados.
-* HashiCorp Vault em execução no host (`localhost:8200`).
-* Dispositivo cliente com suporte a TPM 2.0 e ferramentas `tpm2-tools` instaladas.
+### Hardware e Sistema
 
-### Passo 1: Configurar Variáveis de Ambiente
+- Dispositivo com TPM 2.0 (ex.: Infineon SLB9670, Raspberry Pi 4/5) ou simulador [`swtpm`](https://github.com/stefanberger/swtpm) para ambientes de desenvolvimento.
+- Docker e Docker Compose instalados no servidor.
+- Python 3.11+ no dispositivo cliente.
 
-Crie um arquivo `.env` na raiz do projeto para armazenar as credenciais:
+### Servidor externo
+
+- **HashiCorp Vault** em execução e acessível (`http://localhost:8200` por padrão).
+- **Broker MQTT** configurado para TLS na porta 8883 (somente para o cliente MQTT).
+
+### Ferramentas TPM no cliente
+
+```bash
+sudo apt update && sudo apt install tpm2-tools
+
+# Validação funcional — deve retornar bytes aleatórios sem erro
+sudo tpm2_getrandom 4
+```
+
+---
+
+## 5. Configuração
+
+Crie o arquivo `.env` na raiz de `iot-tpm/` com base no modelo abaixo. **Nunca versione este arquivo.**
 
 ```env
-# Configurações da App
-APP_USER='cliente-otp'
-APP_PASS='senha-aleatoria-123'
-OTP_SECRET='semente_otp'
+# ── Credenciais da aplicação ────────────────────────────────────
+APP_USER=cliente-otp
+APP_PASS=senha-aleatoria-forte-aqui
+OTP_SECRET=semente_otp_base32_aqui
 
-# Configurações do Vault Externo
+# ── Vault ────────────────────────────────────────────────────────
 VAULT_ADDR=http://host.docker.internal:8200
 VAULT_TOKEN=root
 
+# ── MQTT (somente para o cliente MQTT) ──────────────────────────
+MQTT_BROKER=endereco_do_broker
+MQTT_PORT=8883
+MQTT_TOPIC_VERIFY=iot/verify
+CA_CERT=/app/certs/ca.crt
+CLIENT_CERT=/app/certs/client.crt
+CLIENT_KEY=/app/certs/client.key
 ```
 
-### Passo 2: Iniciar o Servidor
-
-```bash
-docker-compose up --build -d
-
-```
-
-### Passo 3: Executar o Cliente
-
-No dispositivo IoT ou simulador:
-
-```bash
-python cliente_iot.py
-
-```
-
-## 5. Fluxo de Segurança
-
-1. **Verificação de Confiança (Hardware):** O cliente executa um teste de sanidade no TPM (`tpm2_getrandom`). Se falhar, a execução é abortada.
-2. **Autenticação Primária:** O cliente autentica-se com credenciais fixas no endpoint `/login`.
-3. **Segredo Partilhado:** O servidor utiliza o segredo definido (ou recuperado do Vault) para validar o próximo passo.
-4. **Autenticação Contínua (OTP):** O cliente envia um código de 6 dígitos a cada 60 segundos. Se o código for inválido ou expirar, a sessão é encerrada no servidor.
-5. **Auditoria:** Todos os eventos são registados na pasta `./data/logs/` para análise posterior.
-
-## 6. Notas de Implementação
-
-* **Comunicação Docker-Host:** O servidor utiliza `host.docker.internal` para comunicar com o Vault que corre fora do contentor.
-* **Resiliência:** O uso de volumes Docker garante que os logs de segurança não sejam perdidos em caso de reinicialização do serviço.
-* **Hardening:** O código do servidor não expõe o `OTP_SECRET` em logs, apenas o utiliza para validação em memória.
-
-## 7. # Projeto IoT Secure: MQTT via TLS com TPM e Vault
-
-Esta versão do projeto substitui a API REST por comunicação via protocolo **MQTT sobre TLS (MQTTS)**, garantindo menor latência e maior segurança em canais de comunicação persistentes.
-
-## Alterações Principais
-- **Protocolo:** Migração de HTTP/REST para MQTT (Porta 8883 padrão para TLS).
-- **Segurança de Transporte:** Implementação obrigatória de certificados X.509 (CA, Server e Client).
-- **Modelo:** Mudança para arquitetura Pub/Sub (Publicador/Subscritor).
-
-## Estrutura
-- `./servidor_mqtt/`: Subscriber que valida os tokens e consulta o Vault.
-- `cliente_mqtt.py`: Publisher que valida o TPM e envia os códigos OTP.
-- `./certs/`: Diretório onde devem ser depositados os certificados `.crt` e `.key`.
-
-## Execução
-1. Configure o seu Broker MQTT (ex: Mosquitto) para aceitar conexões TLS.
-2. Atualize o arquivo `.env` com os caminhos dos certificados.
-3. Inicie o servidor: `python servidor_mqtt/main.py`
-4. Inicie o cliente: `python cliente_mqtt.py`
-
-*Nota: O fluxo de validação TPM no cliente e a integração com Vault no servidor permanecem ativos.*
-
-## Geração de certificados digitais
-1. Como utilizar:
-
-    Instale a dependência:
-    Bash
-
-    pip install cryptography
-
-    Execute o script:
-    Bash
-
-    python gerar_certificados.py
-
-    Distribuição dos arquivos:
-
-        No Servidor MQTT (Broker): Você precisará do ca.crt, server.crt e server.key.
-
-        No Cliente IoT: Você precisará apenas do ca.crt para que ele possa confiar no certificado apresentado pelo servidor.
-
-2.  Observação sobre o SAN (Subject Alternative Name):
-
-O script inclui host.docker.internal e localhost no certificado. Isso é vital para que o cliente não rejeite a conexão por "Hostname Mismatch". Se você for rodar em IPs específicos na sua rede, adicione-os na lista x509.SubjectAlternativeName dentro do script.
-
-## Configurações adicionais:
-Como não tenho acesso direto para navegar nos links do GitHub (devido às restrições de ferramentas), estruturei um **README.md** profissional e técnico para o seu diretório `/iot-tpm`.
-
-Este arquivo foi desenhado para cobrir a complexidade que superamos (TPM + BCC/eBPF + Docker multi-arch), preparando o terreno para o seu futuro cliente REST.
+> **Segurança:** Em produção, substitua o token `root` do Vault por um token de serviço com política de mínimo privilégio e TTL curto.
 
 ---
 
-### Proposta de `README.md` para `/iot-tpm`
+## 6. Execução
 
-```markdown
-# IoT TPM Security Suite
+### 6.1 Cliente REST + Servidor FastAPI
 
-Este diretório contém os componentes de monitoramento e comunicação segura para dispositivos IoT, utilizando **TPM 2.0** para identidade/criptografia e **eBPF (BCC)** para observabilidade em nível de Kernel.
-
-## Arquitetura de Clientes
-O projeto é estruturado para suportar múltiplos protocolos de comunicação, visando segurança e resiliência:
-* **[EM DESENVOLVIMENTO] MQTT Client:** Implementado e validado. Focado em telemetria segura via TLS e autenticação baseada em OTP.
-* **[PLANEJADO] REST Client:** Implementação futura para integração com serviços web via HTTPS/mTLS.
-
-## Pré-requisitos e Ambiente ARM64
-Para garantir a portabilidade entre arquiteturas (x86_64 host para ARM64 target), utilizamos o `docker buildx` com o `moby/buildkit`.
-
-### Preparação do Ambiente
-O build deste projeto exige a emulação de arquitetura. Certifique-se de que o binformat está configurado no seu host:
+**Servidor:**
 
 ```bash
-# Registrar os interpretadores QEMU para multi-arch
-docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+cd server/server_rest_api/
 
+# Build e inicialização em background
+docker compose up --build -d
+
+# Verificar logs
+docker compose logs -f
 ```
 
-## Configuração do Ambiente (Setup)
-
-### 1. Variáveis de Ambiente
-
-Crie um arquivo `.env` na raiz do projeto baseado no exemplo abaixo:
-
-```env
-MQTT_BROKER=seu_broker_ip
-MQTT_PORT=1883
-OTP_SECRET=seu_segredo_otp
-CA_CERT=/app/certs/ca.crt
-MQTT_TOPIC_VERIFY=iot/verify
-
-```
-
-### 2. Construção e Execução
-
-O ambiente requer privilégios elevados para interagir com o subsistema eBPF e o TPM do host:
+**Cliente IoT (no dispositivo):**
 
 ```bash
-# Build sem cache para garantir integridade das dependências
-docker compose build --no-cache
+cd client-iot/client_rest_api/
 
-# Subida do ambiente em background
-docker compose up -d
+pip install -r requirements.txt
 
+# O script verifica o TPM antes de autenticar
+python client_iot.py
 ```
 
-## Validação de Segurança
+**Fluxo REST:**
 
-Após subir o contêiner, valide a integração dos componentes críticos:
+1. `POST /login` → credenciais fixas → recebe `session_token`.
+2. A cada 60 s: `POST /verify` → `session_token` + código TOTP de 6 dígitos.
+3. Código inválido ou expirado → sessão encerrada imediatamente no servidor.
+
+---
+
+### 6.2 Cliente MQTT + Broker TLS
+
+**Pré-requisito:** gere os certificados (ver [Seção 9](#9-geração-de-certificados)) e configure o broker (ex.: Mosquitto) para TLS na porta 8883.
+
+**Servidor MQTT (subscriber):**
+
+```bash
+cd server/server_mqtt/
+
+pip install -r requirements.txt
+python main.py
+```
+
+**Cliente IoT (publisher):**
+
+```bash
+cd client-iot/client_mqtt/
+
+pip install -r requirements.txt
+python client_mqtt.py
+```
+
+**Diferenças em relação ao REST:**
+
+| Aspecto | REST | MQTT |
+|---------|------|------|
+| Protocolo | HTTP/HTTPS | MQTT sobre TLS (porta 8883) |
+| Modelo | Request/Response | Pub/Sub |
+| Latência | Maior | Menor |
+| Ideal para | APIs, payloads maiores | Telemetria, dispositivos restritos |
+
+---
+
+## 7. Fluxo de Segurança
+
+```
+Dispositivo IoT                              Servidor
+──────────────                               ────────
+     │
+     │  1. tpm2_getrandom → verifica TPM
+     │     Se falhar → ABORTA
+     │
+     │  2. POST /login (credenciais fixas)
+     │ ─────────────────────────────────────────────▶
+     │                                   Autentica usuário
+     │                                   Busca OTP_SECRET no Vault
+     │ ◀─────────────────────────────────────────────
+     │     session_token
+     │
+     │  3. Loop a cada 60 s:
+     │     Gera TOTP com OTP_SECRET
+     │     POST /verify (session_token + TOTP)
+     │ ─────────────────────────────────────────────▶
+     │                                   Valida TOTP
+     │                                   Registra evento em ./data/logs/
+     │ ◀─────────────────────────────────────────────
+     │     OK / Sessão encerrada
+```
+
+**Garantias de segurança:**
+
+- O `OTP_SECRET` nunca é exposto em logs — apenas usado em memória para validação.
+- A chave HOTP no TPM possui atributos `fixedtpm` e `fixedparent`: nunca sai do chip.
+- Logs de auditoria persistem em volume Docker mesmo após reinicialização do serviço.
+- No modo MQTT, toda comunicação usa TLS mútuo (mTLS) com certificados X.509.
+
+---
+
+## 8. Validação dos Componentes
+
+Após iniciar os contêineres, valide a integração dos componentes críticos:
 
 ### TPM 2.0
 
-Verifique se o hardware/emulador está acessível:
-
 ```bash
-docker exec client-mqtt tpm2_getcap properties-fixed
+# Verificar acessibilidade do TPM no host
+ls /dev/tpm* && sudo tpm2_getrandom 4
 
+# Dentro do contêiner cliente
+docker exec client-iot tpm2_getcap properties-fixed
 ```
 
-### eBPF (BCC)
-
-Valide a interface de monitoramento de kernel:
+### Vault
 
 ```bash
-docker exec client-mqtt python3 -c 'from bcc import BPF; print("BCC importado com sucesso!")'
+# Verificar status do Vault
+curl -s http://localhost:8200/v1/sys/health | python3 -m json.tool
 
+# Confirmar que o secret está acessível
+vault kv get secret/iot-tpm
 ```
 
-## Estrutura de Diretórios
+### MQTT (se aplicável)
 
-* `/certs`: Volume mapeado para armazenar certificados mTLS/TLS.
-* `/client_mqtt`: Código-fonte e dependências do cliente MQTT.
-* `Dockerfile`: Configuração otimizada para `python:3.11-slim` com headers do Kernel.
+```bash
+# Testar conexão TLS com o broker
+mosquitto_pub -h $MQTT_BROKER -p 8883 \
+  --cafile certs/ca.crt \
+  --certfile certs/client.crt \
+  --keyfile certs/client.key \
+  -t iot/test -m "ping" -d
+```
 
 ---
 
-*Projeto desenvolvido por Juarez de Oliveira - TRF1*
+## 9. Geração de Certificados
 
+Para o modo MQTT com TLS, utilize o script incluído:
+
+```bash
+# Instalar dependência
+pip install cryptography
+
+# Gerar CA, certificado de servidor e certificado de cliente
+python gerar_certificados.py
+```
+
+**Distribuição dos arquivos gerados:**
+
+| Arquivo | Servidor MQTT (Broker) | Cliente IoT |
+|---------|----------------------|-------------|
+| `ca.crt` | ✅ | ✅ |
+| `server.crt` | ✅ | ❌ |
+| `server.key` | ✅ | ❌ |
+| `client.crt` | ❌ | ✅ (se mTLS) |
+| `client.key` | ❌ | ✅ (se mTLS) |
+
+> **SAN (Subject Alternative Name):** O script inclui `host.docker.internal` e `localhost` por padrão. Para implantações em IPs específicos da rede, adicione-os na lista `x509.SubjectAlternativeName` dentro de `gerar_certificados.py` antes de executar.
+
+---
+
+## 10. Build Multi-Arquitetura (ARM64)
+
+Para dispositivos ARM64 (ex.: Raspberry Pi 4/5), o build requer emulação via `docker buildx`:
+
+```bash
+# Registrar interpretadores QEMU para emulação multi-arch
+docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+# Build para ARM64 sem cache (garante integridade das dependências)
+docker buildx build --platform linux/arm64 --no-cache -t iot-tpm-client .
+
+# Subir o ambiente
+docker compose up -d
 ```
 
 ---
 
-### Dicas para o seu README Principal (`README.md` da raiz)
+## 11. Notas de Implementação
 
-Para o seu `README` principal, recomendo adicionar uma seção de **"Roadmap de Componentes"**:
+- **Docker → Host:** O servidor utiliza `host.docker.internal` para se comunicar com o Vault que roda fora do contêiner. Em Linux, pode ser necessário adicionar `--add-host=host.docker.internal:host-gateway` no `docker-compose.yml`.
+- **Modo dev do Vault:** O `VAULT_TOKEN=root` é adequado apenas para desenvolvimento. Em produção, use políticas de mínimo privilégio com TTL curto.
+- **swtpm para CI/CD:** Em pipelines sem hardware TPM, use o simulador `swtpm` para testes automatizados. O comportamento é idêntico ao TPM físico para fins de validação de software.
+- **Hardening:** O código do servidor nunca expõe o `OTP_SECRET` em logs — apenas o utiliza para validação em memória, conforme recomendado na Seção V do artigo.
 
-> ### Roadmap de Componentes IoT
-> O projeto evolui para uma suíte modular de segurança IoT:
-> 1. **Módulo de Identidade:** Hardware-backed via TPM 2.0.
-> 2. **Módulo de Observabilidade:** Kernel-level tracing via eBPF.
-> 3. **Módulo de Conectividade:** >    * `client-mqtt`: Concluído.
->    * `client-rest`: Em fase de definição de arquitetura.
+---
 
-**Como você deseja proceder com a integração do cliente REST futuramente?** Podemos usar a mesma estrutura de `Dockerfile` e `docker-compose` apenas adicionando um novo serviço, o que facilitará muito sua gestão de infraestrutura.
-
-```
+*Parte do projeto [app-tpm](https://github.com/juarez1972/app-tpm) — PPGIa/PUCPR, Brasil.*
