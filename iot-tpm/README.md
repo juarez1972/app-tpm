@@ -132,3 +132,113 @@ Esta versão do projeto substitui a API REST por comunicação via protocolo **M
 2.  Observação sobre o SAN (Subject Alternative Name):
 
 O script inclui host.docker.internal e localhost no certificado. Isso é vital para que o cliente não rejeite a conexão por "Hostname Mismatch". Se você for rodar em IPs específicos na sua rede, adicione-os na lista x509.SubjectAlternativeName dentro do script.
+
+## Configurações adicionais:
+Como não tenho acesso direto para navegar nos links do GitHub (devido às restrições de ferramentas), estruturei um **README.md** profissional e técnico para o seu diretório `/iot-tpm`.
+
+Este arquivo foi desenhado para cobrir a complexidade que superamos (TPM + BCC/eBPF + Docker multi-arch), preparando o terreno para o seu futuro cliente REST.
+
+---
+
+### Proposta de `README.md` para `/iot-tpm`
+
+```markdown
+# IoT TPM Security Suite
+
+Este diretório contém os componentes de monitoramento e comunicação segura para dispositivos IoT, utilizando **TPM 2.0** para identidade/criptografia e **eBPF (BCC)** para observabilidade em nível de Kernel.
+
+## Arquitetura de Clientes
+O projeto é estruturado para suportar múltiplos protocolos de comunicação, visando segurança e resiliência:
+* **[EM DESENVOLVIMENTO] MQTT Client:** Implementado e validado. Focado em telemetria segura via TLS e autenticação baseada em OTP.
+* **[PLANEJADO] REST Client:** Implementação futura para integração com serviços web via HTTPS/mTLS.
+
+## Pré-requisitos e Ambiente ARM64
+Para garantir a portabilidade entre arquiteturas (x86_64 host para ARM64 target), utilizamos o `docker buildx` com o `moby/buildkit`.
+
+### Preparação do Ambiente
+O build deste projeto exige a emulação de arquitetura. Certifique-se de que o binformat está configurado no seu host:
+
+```bash
+# Registrar os interpretadores QEMU para multi-arch
+docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+```
+
+## Configuração do Ambiente (Setup)
+
+### 1. Variáveis de Ambiente
+
+Crie um arquivo `.env` na raiz do projeto baseado no exemplo abaixo:
+
+```env
+MQTT_BROKER=seu_broker_ip
+MQTT_PORT=1883
+OTP_SECRET=seu_segredo_otp
+CA_CERT=/app/certs/ca.crt
+MQTT_TOPIC_VERIFY=iot/verify
+
+```
+
+### 2. Construção e Execução
+
+O ambiente requer privilégios elevados para interagir com o subsistema eBPF e o TPM do host:
+
+```bash
+# Build sem cache para garantir integridade das dependências
+docker compose build --no-cache
+
+# Subida do ambiente em background
+docker compose up -d
+
+```
+
+## Validação de Segurança
+
+Após subir o contêiner, valide a integração dos componentes críticos:
+
+### TPM 2.0
+
+Verifique se o hardware/emulador está acessível:
+
+```bash
+docker exec client-mqtt tpm2_getcap properties-fixed
+
+```
+
+### eBPF (BCC)
+
+Valide a interface de monitoramento de kernel:
+
+```bash
+docker exec client-mqtt python3 -c 'from bcc import BPF; print("BCC importado com sucesso!")'
+
+```
+
+## Estrutura de Diretórios
+
+* `/certs`: Volume mapeado para armazenar certificados mTLS/TLS.
+* `/client_mqtt`: Código-fonte e dependências do cliente MQTT.
+* `Dockerfile`: Configuração otimizada para `python:3.11-slim` com headers do Kernel.
+
+---
+
+*Projeto desenvolvido por Juarez de Oliveira - TRF1*
+
+```
+
+---
+
+### Dicas para o seu README Principal (`README.md` da raiz)
+
+Para o seu `README` principal, recomendo adicionar uma seção de **"Roadmap de Componentes"**:
+
+> ### Roadmap de Componentes IoT
+> O projeto evolui para uma suíte modular de segurança IoT:
+> 1. **Módulo de Identidade:** Hardware-backed via TPM 2.0.
+> 2. **Módulo de Observabilidade:** Kernel-level tracing via eBPF.
+> 3. **Módulo de Conectividade:** >    * `client-mqtt`: Concluído.
+>    * `client-rest`: Em fase de definição de arquitetura.
+
+**Como você deseja proceder com a integração do cliente REST futuramente?** Podemos usar a mesma estrutura de `Dockerfile` e `docker-compose` apenas adicionando um novo serviço, o que facilitará muito sua gestão de infraestrutura.
+
+```
