@@ -8,9 +8,10 @@ idna==3.4
 prompt-toolkit==3.0.36
 pycparser==2.21
 pyhcl==0.4.5
-pytotp==3
+pytotp
 requests==2.27.1
 urllib3==1.26.16
 wcwidth==0.2.6
-pyotp==3
+pyotp
 paho-mqtt==2.0.0
+python-dotenv
