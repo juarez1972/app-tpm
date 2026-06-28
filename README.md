@@ -1,4 +1,5 @@
-# Hybrid Zero Trust Architecture for Non-Interactive Authentication
+```python
+readme_content = """# Hybrid Zero Trust Architecture for Non-Interactive Authentication
 
 > **Artigo de Referência:** "A Hybrid Zero Trust Architecture for Non-Interactive Authentication: Integrating Hardware Trust Anchors with Software-Defined Secret Management in Infrastructure as Code"  
 > Langaro, J. S.; Santin, A. O.; Viegas, E. K.; Veiga, F. M.; Oliveira, J. — PPGIa/PUCPR, Brazil.
@@ -14,17 +15,17 @@ Este repositório contém a implementação de referência da arquitetura híbri
 3. [Estrutura do Repositório](#3-estrutura-do-repositório)
 4. [Tecnologias Utilizadas](#4-tecnologias-utilizadas)
 5. [Configuração e Instalação](#5-configuração-e-instalação)
-   - 5.1 [Pré-requisitos gerais](#51-pré-requisitos-gerais)
-   - 5.2 [Suporte ao TPM no host Linux](#52-suporte-ao-tpm-no-host-linux)
-   - 5.3 [Suporte ao SGX no host Linux](#53-suporte-ao-sgx-no-host-linux)
-   - 5.4 [Suporte ao TDX no host Linux](#54-suporte-ao-tdx-no-host-linux)
+   - [5.1 Pré-requisitos gerais](#51-pré-requisitos-gerais)
+   - [5.2 Suporte ao TPM no host Linux](#52-suporte-ao-tpm-no-host-linux)
+   - [5.3 Suporte ao SGX no host Linux](#53-suporte-ao-sgx-no-host-linux)
+   - [5.4 Suporte ao TDX no host Linux](#54-suporte-ao-tdx-no-host-linux)
 6. [Módulos do Protótipo](#6-módulos-do-protótipo)
-   - 6.1 [HOTP/HMAC (hotp/)](#61-hotphmac-hotp)
-   - 6.2 [Vault + TPM Auto-Unseal (vault-tpm/)](#62-vault--tpm-auto-unseal-vault-tpm)
-   - 6.3 [Cliente IoT com TPM (iot-tpm/)](#63-cliente-iot-com-tpm-iot-tpm)
-   - 6.4 [ZTNA com OpenZiti e Keycloak (ztna/)](#64-ztna-com-openziti-e-keycloak-ztna)
-   - 6.5 [Proxy Web (proxy-web/)](#65-proxy-web-proxy-web)
-   - 6.6 [Simulação Adversarial com LLM (pentest/)](#66-simulação-adversarial-com-llm-pentest)
+   - [6.1 HOTP/HMAC (hotp/)](#61-hotphmac-hotp)
+   - [6.2 Vault + TPM Auto-Unseal (vault-tpm/)](#62-vault--tpm-auto-unseal-vault-tpm)
+   - [6.3 Cliente IoT com TPM (iot-tpm/)](#63-cliente-iot-com-tpm-iot-tpm)
+   - [6.4 ZTNA com OpenZiti e Keycloak (ztna/)](#64-ztna-com-openziti-e-keycloak-ztna)
+   - [6.5 Proxy Web (proxy-web/)](#65-proxy-web-proxy-web)
+   - [6.6 Simulação Adversarial com LLM (pentest/)](#66-simulação-adversarial-com-llm-pentest)
 7. [Arquitetura Lógica do Fluxo nIA](#7-arquitetura-lógica-do-fluxo-nia)
 8. [Resultados Experimentais](#8-resultados-experimentais)
 9. [Roadmap](#9-roadmap)
@@ -41,8 +42,6 @@ A camada de rede implementa **ZTNA** via OpenZiti ou Twingate, de modo que as cr
 
 **Overhead medido:** ~75 ms por transação nIA completa; **RTO do Vault** reduzido de ~3 minutos (unseal manual) para ~300 ms (auto-unseal via TPM).
 
----
-
 ## 2. Pilares de Segurança
 
 ### 🛡️ Proteção via Hardware (TPM 2.0 / SGX / TDX)
@@ -51,7 +50,7 @@ A camada de rede implementa **ZTNA** via OpenZiti ou Twingate, de modo que as cr
 |---|---|---|
 | Servidores baseline | TPM 2.0 (dTPM/fTPM) | Boot integrity (PCRs), Vault auto-unseal, HOTP via tpm2-pytss |
 | Servidores críticos | Intel SGX + Gramine | Isolamento em enclave; memória cifrada pelo CPU (MEE) |
-| Nuvem confidencial | Intel TDX + vTPM | Trust Domain completo; hipevisor não acessa RAM da VM |
+| Nuvem confidencial | Intel TDX + vTPM | Trust Domain completo; hypervisor não acessa RAM da VM |
 | IoT / Edge | TPM 2.0 (Infineon SLB9670 / swtpm) | HMAC seed não exportável; contador monotônico em NVRAM |
 
 - **Root of Trust:** chaves geradas e armazenadas dentro do TPM com atributos `fixedtpm` e `fixedparent`.
@@ -84,13 +83,13 @@ def generate_hardware_hotp(nv_index, key_handle):
     counter_val = ctx.nv_read(nv_index)
     hmac_result = ctx.hmac(key_handle, counter_val)
     return truncate_to_hotp(hmac_result) # chave nunca sai do chip
+
 ```
 
 ```
 HOTP(K, C) = Truncate(HMAC-SHA-1_TPM(K, C))
-```
 
----
+```
 
 ## 3. Estrutura do Repositório
 
@@ -151,14 +150,13 @@ app-tpm/
 │   └── pentestv3.py    # Versão completa: Cyber-Llama local (Ollama)
 │
 └── web-app/            # Aplicação de demonstração integrada
-```
 
----
+```
 
 ## 4. Tecnologias Utilizadas
 
 | Categoria | Componente | Versão / Referência |
-|---|---|---|
+| --- | --- | --- |
 | Hardware Root of Trust | TPM 2.0 (ISO/IEC 11889) | Infineon SLB9670/SLB9665 ou swtpm |
 | Confidential Computing | Intel SGX (Gramine/LibOS) | DCAP driver |
 | Confidential VM | Intel TDX + vTPM | Sapphire Rapids+ |
@@ -171,19 +169,17 @@ app-tpm/
 | Linguagem | Python 3.10+, Shell Script | — |
 | Adversarial Simulation | Llama 3.x via Ollama / Google Gemini | Seção VI.A |
 
----
-
 ## 5. Configuração e Instalação
 
 ### 5.1 Pré-requisitos gerais
 
-- Sistema com suporte a TPM 2.0 (ou simulador `swtpm` para CI/CD).
-- Docker e Docker Compose instalados.
-- Python 3.10+ com suporte a ambientes virtuais.
+* Sistema com suporte a TPM 2.0 (ou simulador `swtpm` para CI/CD).
+* Docker e Docker Compose instalados.
+* Python 3.10+ com suporte a ambientes virtuais.
 
 ```bash
 # Clonar o repositório
-git clone https://github.com/juarez1972/app-tpm.git
+git clone [https://github.com/juarez1972/app-tpm.git](https://github.com/juarez1972/app-tpm.git)
 cd app-tpm
 
 # Criar e ativar ambiente virtual Python
@@ -195,9 +191,8 @@ pip install -r hotp/Client/requirements.txt
 
 # Para desativar o ambiente virtual
 deactivate
-```
 
----
+```
 
 ### 5.2 Suporte ao TPM no host Linux
 
@@ -215,6 +210,7 @@ ls /dev/tpm*
 # Módulos do kernel TPM carregados
 lsmod | grep tpm
 # Esperado: tpm_tis, tpm_tis_core, tpm, tpm_crb, etc.
+
 ```
 
 #### Instalar ferramentas TPM2
@@ -228,6 +224,7 @@ sudo tpm2_getrandom 4
 
 # Exibir capacidades e versão do TPM
 sudo tpm2_getcap properties-fixed | head
+
 ```
 
 #### Provisionar HOTP no TPM (Sequência do artigo, Seção VI.B)
@@ -253,11 +250,10 @@ tpm2_pcrread sha256:7
 tpm2_createpolicy --policy-pcr -l sha256:0,7 -L policy.pcr
 tpm2_create -C primary.ctx -i unseal.key \
   -L policy.pcr -r seal.priv -u seal.pub -c seal.ctx
+
 ```
 
 > Os atributos `fixedtpm` e `fixedparent` garantem que a chave **nunca saia do chip**, mesmo sob comprometimento total do SO.
-
----
 
 ### 5.3 Suporte ao SGX no host Linux
 
@@ -268,23 +264,25 @@ O processo envolve três etapas: verificar suporte no hardware/BIOS, instalar dr
 ```bash
 # Verificar flags SGX na CPU
 grep -m1 sgx /proc/cpuinfo
+
 ```
 
 No BIOS/UEFI, habilite SGX (modo *Enabled* ou *Software Controlled*) e desative Secure Boot se o driver não for assinado. Instale os headers do kernel correspondentes:
 
 ```bash
 sudo apt install linux-headers-$(uname -r) build-essential dkms
+
 ```
 
 #### 2. Instalar o driver DCAP
 
 ```bash
 # Opção 1: Baixar instalador binário da Intel
-wget https://download.01.org/intel-sgx/latest/linux-latest/distro/ubuntu22.04-server/sgx_linux_x64_driver_<versao>.bin
+wget [https://download.01.org/intel-sgx/latest/linux-latest/distro/ubuntu22.04-server/sgx_linux_x64_driver](https://download.01.org/intel-sgx/latest/linux-latest/distro/ubuntu22.04-server/sgx_linux_x64_driver)_<versao>.bin
 chmod +x sgx_linux_x64_driver_<versao>.bin && sudo ./sgx_linux_x64_driver_<versao>.bin
 
 # Opção 2: Compilar do fonte
-git clone https://github.com/intel/linux-sgx-driver
+git clone [https://github.com/intel/linux-sgx-driver](https://github.com/intel/linux-sgx-driver)
 cd linux-sgx-driver && make
 sudo cp isgx.ko /lib/modules/$(uname -r)/kernel/drivers/intel/sgx/
 sudo depmod && sudo modprobe isgx
@@ -292,6 +290,7 @@ sudo depmod && sudo modprobe isgx
 # Verificar ativação
 lsmod | grep sgx
 ls /dev/sgx/enclave  # ou /dev/isgx conforme versão do driver
+
 ```
 
 #### 3. Instalar SDK e PSW
@@ -302,15 +301,16 @@ sudo apt install ocaml automake autoconf cmake python3 \
   libssl-dev libcurl4-openssl-dev libprotobuf-dev
 
 # Baixar e instalar o SDK da Intel
-wget https://download.01.org/intel-sgx/latest/linux-latest/distro/ubuntu22.04-server/sgx_linux_x64_sdk_<versao>.bin
+wget [https://download.01.org/intel-sgx/latest/linux-latest/distro/ubuntu22.04-server/sgx_linux_x64_sdk](https://download.01.org/intel-sgx/latest/linux-latest/distro/ubuntu22.04-server/sgx_linux_x64_sdk)_<versao>.bin
 chmod +x sgx_linux_x64_sdk_<versao>.bin
 sudo ./sgx_linux_x64_sdk_<versao>.bin --prefix /opt/intel
 source /opt/intel/sgxsdk/environment
 
 # Instalar PSW via repositório APT da Intel
-echo "deb [arch=amd64] https://download.01.org/intel-sgx/sgx_repo/ubuntu $(lsb_release -sc) main" \
+echo "deb [arch=amd64] [https://download.01.org/intel-sgx/sgx_repo/ubuntu](https://download.01.org/intel-sgx/sgx_repo/ubuntu) $(lsb_release -sc) main" \
   | sudo tee /etc/apt/sources.list.d/intel-sgx.list
 sudo apt update && sudo apt install libsgx-urts libsgx-launch libsgx-epid libsgx-quote-ex
+
 ```
 
 #### 4. Testar com amostras do SDK
@@ -319,11 +319,10 @@ sudo apt update && sudo apt install libsgx-urts libsgx-launch libsgx-epid libsgx
 cd /opt/intel/sgxsdk/SampleCode/SampleEnclave
 make SGX_MODE=HW    # ou SGX_MODE=SIM para ambientes sem hardware
 ./app
+
 ```
 
 > Confirme que o serviço AESM está ativo: `systemctl status aesmd`
-
----
 
 ### 5.4 Suporte ao TDX no host Linux
 
@@ -334,6 +333,7 @@ Requer processadores Intel Xeon com TDX (Sapphire Rapids, Emerald Rapids, Xeon 6
 ```bash
 sudo apt update && sudo apt full-upgrade -y
 sudo reboot
+
 ```
 
 #### 2. Habilitar TDX na BIOS/UEFI
@@ -341,7 +341,7 @@ sudo reboot
 Na seção *CPU / Processor / Socket Configuration*, ative:
 
 | Opção | Valor |
-|---|---|
+| --- | --- |
 | Memory Encryption (TME) | Enable |
 | Total Memory Encryption Multi-Tenant (TME-MT) | Enable |
 | TME-MT memory integrity | **Disable** |
@@ -362,6 +362,7 @@ sudo update-grub && sudo reboot
 # Verificar após o reboot
 cat /proc/cmdline           # deve conter: nohibernate kvm_intel.tdx=1
 sudo dmesg | grep -i tdx    # deve mostrar: virt/tdx: module initialized
+
 ```
 
 #### 4. Instalar o stack de virtualização TDX
@@ -369,12 +370,13 @@ sudo dmesg | grep -i tdx    # deve mostrar: virt/tdx: module initialized
 ```bash
 sudo apt install qemu-system-x86 ovmf-inteltdx libvirt-daemon-system libvirt-clients
 ls -l /usr/share/ovmf/OVMF.inteltdx.ms.fd  # deve existir com alguns MB
+
 ```
 
 #### 5. Usar o atalho Canonical/TDX (recomendado)
 
 ```bash
-git clone -b noble-24.04 https://github.com/canonical/tdx.git
+git clone -b noble-24.04 [https://github.com/canonical/tdx.git](https://github.com/canonical/tdx.git)
 cd tdx
 
 # Configurar atestação (opcional)
@@ -388,6 +390,7 @@ cd tdx/guest-tools/image
 sudo ./create-td-image.sh -v 24.04
 # Gera: tdx-guest-ubuntu-24.04-*.qcow2
 # Troque a senha padrão (123456) antes de usar em produção.
+
 ```
 
 #### 6. Iniciar uma Trust Domain (TD) via QEMU
@@ -403,6 +406,7 @@ qemu-system-x86_64 \
   -drive file=tdx-guest-ubuntu-24.04-generic.qcow2,if=none,id=virtio-disk0 \
   -device virtio-blk-pci,drive=virtio-disk0 \
   -serial stdio
+
 ```
 
 #### 7. Verificar TDX dentro do guest
@@ -411,13 +415,12 @@ qemu-system-x86_64 \
 sudo dmesg | grep -i tdx
 # Esperado: "tdx: Guest detected"
 ls -l /dev/tdx_guest   # deve existir como char device
-```
 
----
+```
 
 ## 6. Módulos do Protótipo
 
-### 6.1 HOTP/HMAC (`hotp/`)
+### 6.1 HOTP/HMAC (hotp/)
 
 Implementação de referência do pipeline HOTP/TOTP cliente-servidor (Layer 2 do artigo).
 
@@ -431,16 +434,18 @@ python Server/server.py
 # Em outro terminal, obter o secret e configurar o cliente
 # Edite hotp/Client/client.py: OTP_SECRET = "<valor do /setup>"
 python Client/client.py
+
 ```
 
 > **Atenção de segurança:** Em produção, substitua `FIXED_USER`, `FIXED_PASS` e `OTP_SECRET` por variáveis de ambiente. O HOTP do artigo é delegado ao TPM; o servidor atual usa `pyotp` como baseline para testes sem hardware.
 
 **Fluxo:**
+
 1. Cliente faz `POST /login` com credenciais → recebe `session_token`
 2. A cada 60 s: cliente gera TOTP e envia `POST /verify` com token + OTP
 3. Se OTP inválido, sessão é encerrada imediatamente
 
-### 6.2 Vault + TPM Auto-Unseal (`vault-tpm/`)
+### 6.2 Vault + TPM Auto-Unseal (vault-tpm/)
 
 Implementa o **Hardware Auto-Unseal** descrito na Seção V do artigo.
 
@@ -455,16 +460,18 @@ docker-compose up -d
 
 # Testar integração TPM ↔ Vault
 ./test_tpm_integration.sh
+
 ```
 
 **Componentes:**
-- `vault-init/vault_initializer.py`: criptografa unseal keys com TPM real ou simulado; salva `.enc` para produção e `.txt` para depuração.
-- `tpm-validator/tpm_validator.py`: health check periódico (TPM, arquivos `.enc`, Vault) exposto na porta 8080.
-- `scripts/setup_vault_policies.hcl`: políticas de acesso mínimo para os serviços que interagem com o Vault.
+
+* `vault-init/vault_initializer.py`: criptografa unseal keys com TPM real ou simulado; salva `.enc` para produção e `.txt` para depuração.
+* `tpm-validator/tpm_validator.py`: health check periódico (TPM, arquivos `.enc`, Vault) exposto na porta 8080.
+* `scripts/setup_vault_policies.hcl`: políticas de acesso mínimo para os serviços que interagem com o Vault.
 
 > **Nota:** Em modo dev (`VAULT_DEV_ROOT_TOKEN_ID=root`), o token padrão é `root`. Em produção, remova o modo dev e use apenas auto-unseal por TPM.
 
-### 6.3 Cliente IoT com TPM (`iot-tpm/`)
+### 6.3 Cliente IoT com TPM (iot-tpm/)
 
 Agente nIA para dispositivos IoT (Raspberry Pi 4/5, ARM64 Yocto) conforme Seção VI.B do artigo.
 
@@ -491,11 +498,12 @@ python client-iot/client_mqtt/client_mqtt.py
 
 # Servidor MQTT (subscriber)
 python server/server_mqtt/server_mqtt.py
+
 ```
 
 > O cliente IoT verifica o TPM via `tpm2_getrandom` antes de autenticar. Se o TPM não estiver operacional, a autenticação é abortada — comportamento esperado pelo modelo de dois canais (Seção VI.D). O `unseal_and_start.py` é o entrypoint Docker que faz o unseal da chave de serviço via TPM e inicia o cliente Twingate antes de qualquer comunicação.
 
-### 6.4 ZTNA com OpenZiti e Keycloak (`ztna/`)
+### 6.4 ZTNA com OpenZiti e Keycloak (ztna/)
 
 PoC do Layer 3 (Network Enforcement) do artigo, validando substituição de VPN por ZTNA baseado em identidade.
 
@@ -516,9 +524,11 @@ docker-compose -f openziti/docker-compose-openziti.yml up -d  # ZTNA
 # 4. Acessar console de gestão
 # https://<ip>:8444  → ZAC (Ziti Admin Console)
 # http://<ip>:8080   → Keycloak
+
 ```
 
 **Auto-enrollment para escala:**
+
 ```bash
 docker exec -it ziti-controller ziti edge create ext-jwt-signer "keycloak-ztna" \
   --claims-property "email" \
@@ -526,9 +536,10 @@ docker exec -it ziti-controller ziti edge create ext-jwt-signer "keycloak-ztna" 
   --jwks-endpoint "http://keycloak:8080/realms/ziti-realm/protocol/openid-connect/certs" \
   --external-id-claim "email" \
   --auto-enrollment-enabled
+
 ```
 
-### 6.5 Proxy Web (`proxy-web/`)
+### 6.5 Proxy Web (proxy-web/)
 
 Dashboard de demonstração que agrega status dos componentes da arquitetura.
 
@@ -537,9 +548,10 @@ cd proxy-web
 docker-compose up -d
 # Acesse: http://localhost:<porta configurada>
 ./deploy.sh   # para atualizar sem downtime
+
 ```
 
-### 6.6 Simulação Adversarial com LLM (`pentest/`)
+### 6.6 Simulação Adversarial com LLM (pentest/)
 
 Pipeline autônomo de red-team descrito na Seção VI.A do artigo, usando Llama 3.x local (via Ollama) ou Google Gemini.
 
@@ -554,26 +566,26 @@ OPENVAS_USER=admin
 OPENVAS_PASS=sua_senha_forte
 # GEMINI_API_KEY=chave_opcional_para_modo_cloud
 EOF
+
 ```
 
 | Versão | Descrição | Modelo LLM |
-|---|---|---|
+| --- | --- | --- |
 | `pentest.py` | Básico: Nmap + OpenVAS | — |
 | `pentestv2.py` | Com análise por IA em nuvem | Google Gemini 2.0 Flash |
 | `pentestv3.py` | Completo on-premises (produção) | Cyber-Llama / Llama 3.x (Ollama) |
 
 ```bash
 # Instalar Ollama e modelo
-curl -fsSL https://ollama.com/install.sh | sh
+curl -fsSL [https://ollama.com/install.sh](https://ollama.com/install.sh) | sh
 ollama run llama3
 
 # Executar simulação (pentestv3 — modo local)
 python pentestv3.py
+
 ```
 
 > **Aviso legal:** Este software destina-se exclusivamente à **auditoria de segurança autorizada** e **pesquisa acadêmica**. O uso contra alvos sem permissão explícita é ilegal. Os autores não se responsabilizam pelo uso indevido.
-
----
 
 ## 7. Arquitetura Lógica do Fluxo nIA
 
@@ -607,6 +619,7 @@ python pentestv3.py
 
 Ciclo da credencial:
   Gerada (plaintext no Vault) → Ofuscada (HOTP em trânsito) → Descartada
+
 ```
 
 **Fluxo de boot e autenticação:**
@@ -617,8 +630,6 @@ Ciclo da credencial:
 4. **Verificação ZTNA:** postura do dispositivo + HOTP validados simultaneamente.
 5. **Transaction:** credencial trafega ofuscada por TLS + túnel ZTNA; apenas o Hub Services a desofusca.
 
----
-
 ## 8. Resultados Experimentais
 
 Conforme a avaliação completa na Seção VI do artigo:
@@ -626,7 +637,7 @@ Conforme a avaliação completa na Seção VI do artigo:
 ### Performance (1.000 requisições nIA concorrentes — Ubuntu 22.04 LTS)
 
 | Operação | Software-only | TPM (Tier 1) | SGX (Tier 2) | TDX (Tier 3) |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | Geração HOTP | ~2 ms | ~65 ms | ~85 ms | ~70 ms |
 | Autenticação Vault | ~45 ms | ~110 ms | ~130 ms | ~115 ms |
 | nIA End-to-End | ~120 ms | ~195 ms | ~225 ms | ~205 ms |
@@ -635,7 +646,7 @@ Conforme a avaliação completa na Seção VI do artigo:
 ### Segurança (LLM Red-Team — 500 cenários MITRE ATT&CK)
 
 | Tática MITRE | Técnica | Software-only | Arquitetura Híbrida |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | TA0001 | T1078 Valid Accounts | 8% | **0%** |
 | TA0004 | T1068 Privilege Escalation | 15% | **0%** |
 | TA0006 | T1003 OS Credential Dumping | 22% | **0%** |
@@ -644,33 +655,29 @@ Conforme a avaliação completa na Seção VI do artigo:
 
 > Taxa média de bypass na arquitetura de software puro: **18,4%**. Na arquitetura híbrida: **0%** em 500 cenários.
 
----
-
 ## 9. Roadmap
 
-- [ ] **Post-Quantum TPM:** Avaliar CRYSTALS-Dilithium e SPHINCS+ em NV indices do TPM 2.0 para IoT de longo prazo.
-- [ ] **LLM Red-Team Federado:** Distribuir a simulação adversarial entre múltiplos modelos locais para detecção por consenso.
-- [ ] **Atestação TDX Cross-Cloud:** Padronizar atestação via vTPM entre AWS NitroTPM, Azure vTPM e GCP vTPM.
-- [ ] **Integração Terraform completa:** Módulo IaC com labels `standard | high | critical` para seleção automática de tier de proteção.
-
----
+* [ ] **Post-Quantum TPM:** Avaliar CRYSTALS-Dilithium e SPHINCS+ em NV indices do TPM 2.0 para IoT de longo prazo.
+* [ ] **LLM Red-Team Federado:** Distribuir a simulação adversarial entre múltiplos modelos locais para detecção por consenso.
+* [ ] **Atestação TDX Cross-Cloud:** Padronizar atestação via vTPM entre AWS NitroTPM, Azure vTPM e GCP vTPM.
+* [ ] **Integração Terraform completa:** Módulo IaC com labels `standard | high | critical` para seleção automática de tier de proteção.
 
 ## 10. Licença
 
-Este projeto está licenciado sob a [Licença MIT](LICENSE).
-
----
+Este projeto está licenciado sob a [Licença MIT](https://www.google.com/search?q=LICENSE).
 
 ## 11. Autores
 
 Desenvolvido pelos pesquisadores do Programa de Pós-Graduação em Informática (PPGIa) — PUCPR, Brasil.
 
 | # | Nome | E-mail |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Juarez de Oliveira, M.Sc. | juarez.oliveira@pucpr.edu.br |
 | 2 | Juliano Sartori Langaro, M.Sc. | juliano.langaro@pucpr.edu.br |
 | 3 | Fellipe Medeiros Veiga, M.Sc. | fellipe.veiga@pucpr.edu.br |
 | 4 | Altair Olivo Santin, PhD. *(Orientador)* | altair.santin@pucpr.br |
 
 Financiado parcialmente pelo CNPq — bolsas nº 307706/2025-7 e 407879/2023-4.
+"""
+
 
