@@ -2,6 +2,7 @@ services:
 
   # ── Desenvolvimento local (x86_64) ───────────────────────────────────────────
   # Uso: docker compose --profile dev up --build
+  # MQTT_BROKER=mqttserver.local resolve para 192.168.56.106 via extra_hosts
   client-mqtt:
     build:
       context: .
@@ -17,11 +18,13 @@ services:
       - "/dev/tpm0:/dev/tpm0"
     volumes:
       - /sys/kernel/debug:/sys/kernel/debug:rw
-      - ./certs:/app/certs:ro
+      - ./certs:/app/certs:ro         # apenas ca.crt — sem chave privada no cliente
     env_file:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
+    extra_hosts:
+      - "mqttserver.local:192.168.56.106"   # IP fixo do servidor — alterar se mudar
     profiles: ["dev"]
 
   # ── Alvo ARM64 (Raspberry Pi 4/5) ────────────────────────────────────────────
@@ -46,9 +49,15 @@ services:
       - "/dev/tpm0:/dev/tpm0"
     volumes:
       - /sys/kernel/debug:/sys/kernel/debug:rw
-      - ./certs:/app/certs:ro
+      - ./certs:/app/certs:ro         # apenas ca.crt — sem chave privada no cliente
     env_file:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
+    extra_hosts:
+      - "mqttserver.local:192.168.56.106"   # IP fixo do servidor — alterar se mudar
     profiles: ["arm64"]
+
+# Sem rede Docker compartilhada — cliente conecta ao servidor via rede física
+# A porta 8883 do broker está publicada no host do servidor (0.0.0.0:8883)
+

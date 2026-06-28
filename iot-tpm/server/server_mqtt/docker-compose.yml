@@ -1,0 +1,44 @@
+services:
+
+  # ── Broker MQTT (Mosquitto com TLS) ──────────────────────────────────────────
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    container_name: mqtt-broker
+    restart: unless-stopped
+    ports:
+      - "8883:8883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ../../certs:/certs:ro          # certificados gerados por gerar_certificados.py
+      - mosquitto-data:/mosquitto/data
+    networks:
+      - mqtt-net
+
+  # ── Subscriber Python (validação OTP + Vault) ─────────────────────────────
+  server-mqtt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: server-mqtt
+    restart: unless-stopped
+    depends_on:
+      - mqtt-broker
+    volumes:
+      - ../../certs:/app/certs:ro      # mesmo diretório de certificados
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MQTT_BROKER=mqtt-broker        # nome do serviço Docker — resolução interna
+      - MQTT_PORT=8883
+    networks:
+      - mqtt-net
+
+volumes:
+  mosquitto-data:
+
+networks:
+  mqtt-net:
+    name: iot-mqtt-net
+    driver: bridge
+

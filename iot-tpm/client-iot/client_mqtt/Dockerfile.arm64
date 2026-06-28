@@ -27,3 +27,4 @@ COPY . .
 
 # Executa o cliente MQTT
 CMD ["python", "-u", "client_mqtt.py"]
+
