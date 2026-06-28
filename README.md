@@ -118,6 +118,8 @@ app-tpm/
 │   │   └── client_mqtt/         # Cliente MQTT para IoT de baixa largura de banda
 │   │       └── client_mqtt.py
 │   ├── server/
+│   │   ├─ certs/             # certificados TLS (não versionados)
+│   │   ├─ gerar_certificados.py
 │   │   ├── server_rest_api/     # Backend FastAPI + integração Vault
 │   │   │   ├── main.py          # Versão com Vault
 │   │   │   ├── server_rest_api.py  # Versão standalone (testes sem Vault)
@@ -460,7 +462,7 @@ docker-compose up -d
 Agente nIA para dispositivos IoT (Raspberry Pi 4/5, ARM64 Yocto) conforme Seção VI.B do artigo.
 
 ```bash
-cd iot-tpm
+cd iot-tpm/
 
 # 1. Unseal da chave via TPM e inicialização do cliente Twingate (ZTNA)
 #    Executado automaticamente pelo contêiner via ENTRYPOINT
