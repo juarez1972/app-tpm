@@ -90,6 +90,8 @@ iot-tpm/
 │       ├── client_iot.py
 │       └── requirements.txt
 ├── server/
+│   ├── certs/                # ca.crt, server.crt, server.key (não versionados)
+│   ├── gerar_certificados.py # gera os certs acima
 │   ├── server_rest_api/
 │   │   ├── main.py
 │   │   ├── server_rest_api.py        # versão standalone para testes (sem Vault)
@@ -101,7 +103,6 @@ iot-tpm/
 ├── certs/                            # (planejado)
 ├── data/
 │   └── logs/                         # (planejado)
-├── gerar_certificados.py             # (planejado)
 ├── .env                              # (planejado)
 └── README.md
 ```
