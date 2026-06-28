@@ -1,13 +1,16 @@
-# IoT-TPM: Non-Interactive Authentication Agent with TPM 2.0
+# HashiCorp Vault with TPM-Validated Auto-Unseal
 
 ![app-tpm](https://img.shields.io/badge/project-app--tpm-blue)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Docker](https://img.shields.io/badge/docker-required-blue)
+![HashiCorp Vault](https://img.shields.io/badge/HashiCorp%20Vault-1.15%2B-black?logo=vault)
+![Docker](https://img.shields.io/badge/docker-compose-blue?logo=docker)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 > Component of the prototype described in:
 > **"A Hybrid Zero Trust Architecture for Non-Interactive Authentication"**
 > Langaro, J. S.; Santin, A. O.; Viegas, E. K.; Veiga, F. M.; Oliveira, J. — PPGIa/PUCPR, Brazil.
+
+This module implements **Hardware Auto-Unseal for HashiCorp Vault** using a TPM 2.0 chip as the root of trust. The Vault process will not unseal until the host's TPM passes integrity validation — establishing a hardware chain of trust that eliminates manual unseal operations and prevents Vault from starting on a tampered or unauthorized machine.
 
 ---
 
@@ -17,124 +20,125 @@
 2. [Architecture](#2-architecture)
 3. [Directory Structure](#3-directory-structure)
 4. [Prerequisites](#4-prerequisites)
-5. [Initial Setup](#5-initial-setup)
-6. [Execution](#6-execution)
-7. [Communication Protocols](#7-communication-protocols)
-8. [Security Model](#8-security-model)
-9. [Certificate Generation](#9-certificate-generation)
-10. [Troubleshooting](#10-troubleshooting)
-11. [References](#11-references)
+5. [Configuration](#5-configuration)
+6. [Running the Stack](#6-running-the-stack)
+7. [Component Details](#7-component-details)
+8. [Validation & Testing](#8-validation--testing)
+9. [Unversioned / Runtime Artifacts](#9-unversioned--runtime-artifacts)
+10. [Notes](#10-notes)
 
 ---
 
 ## 1. Overview
 
-`iot-tpm` implements a **non-interactive authentication agent** for IoT devices using a **TPM 2.0** (Trusted Platform Module) chip. The module enables an IoT device to prove its identity to a server without any human interaction, using keys sealed to the TPM's PCR registers.
+`vault-tpm` addresses the **Secret Zero problem** in Infrastructure as Code: how to bootstrap secret management without storing an initial plaintext credential anywhere. The solution anchors the Vault unseal key inside a TPM 2.0 — a dedicated tamper-resistant chip that can only release the key when PCR measurements match the expected, untampered boot state.
 
 **Key capabilities:**
 
-- TPM 2.0-based hardware identity (sealed keys bound to PCR registers)
-- Support for two communication protocols: **REST API** (HTTPS) and **MQTT** (TLS)
-- Automatic unsealing and startup via `unseal_and_start.py`
-- Containerized deployment for both server and client components
+- TPM 2.0-based hardware validation before every Vault unseal
+- Automated container orchestration: the TPM validator runs first, Vault only starts after the check passes
+- Web health endpoint (port 8080) served by `tpm-validator/tpm_validator.py` for external monitoring
+- Vault policies enforcing minimum-privilege access for any service interacting with secrets
+- Utility scripts for system status checks and integration testing
 
-**Use case:** Edge devices (e.g., Raspberry Pi with TPM 2.0) that must authenticate to a backend server at boot time, without a password prompt or human operator.
+**Port summary:**
+
+| Service | Port | Protocol |
+|---|---|---|
+| HashiCorp Vault API | `8200` | HTTP (add TLS before production) |
+| TPM Validator health endpoint | `8080` | HTTP |
 
 ---
 
 ## 2. Architecture
 
+The stack consists of three containers orchestrated by Docker Compose. The startup sequence enforces a strict dependency order: the TPM validator must pass before the vault initializer runs, and the vault initializer must complete successfully before Vault serves any requests.
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         IoT Device                              │
-│                                                                 │
-│  ┌──────────────────┐        ┌───────────────────────────────┐  │
-│  │    TPM 2.0        │        │      client-iot/              │  │
-│  │  ┌─────────────┐ │        │  ┌─────────────────────────┐  │  │
-│  │  │ sealed_key  │ │◄──────►│  │  client_rest_api/        │  │  │
-│  │  │  .pub/.priv │ │        │  │  client_iot.py           │  │  │
-│  │  └─────────────┘ │        │  └─────────────────────────┘  │  │
-│  │                  │        │  ┌─────────────────────────┐  │  │
-│  └──────────────────┘        │  │  client_mqtt/            │  │  │
-│                              │  │  client_mqtt.py          │  │  │
-│  ┌──────────────────┐        │  └─────────────────────────┘  │  │
-│  │ unseal_and_       │        └───────────────────────────────┘  │
-│  │ start.py          │                                           │
-│  └──────────────────┘                                           │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              │ HTTPS / MQTT+TLS              │
-              ▼                               ▼
-┌─────────────────────┐         ┌─────────────────────────┐
-│  server_rest_api/   │         │    server_mqtt/          │
-│  server_rest_api.py │         │    server_mqtt.py        │
-│  main.py            │         │    mosquitto.conf        │
-│  (FastAPI/Uvicorn)  │         │    (Mosquitto broker +   │
-│                     │         │     Python subscriber)   │
-└─────────────────────┘         └─────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                         vault-tpm stack                             │
+│                                                                     │
+│  ┌────────────────────────────────────────────────────────────┐     │
+│  │  HOST MACHINE                                               │     │
+│  │                                                             │     │
+│  │  ┌──────────────┐  PCR measurement                         │     │
+│  │  │   TPM 2.0    │──────────────────────────────────────┐  │     │
+│  │  │  (hardware)  │                                       │  │     │
+│  │  └──────────────┘                                       │  │     │
+│  └─────────────────────────────────────────────────────────┼──┘     │
+│                                                             │        │
+│  ┌──────────────────────┐     ┌────────────────────────────▼──┐     │
+│  │    tpm-validator      │     │         vault-init             │     │
+│  │                       │     │                                │     │
+│  │  tpm_validator.py     │     │  vault_initializer.py          │     │
+│  │  health_check.py      │     │                                │     │
+│  │                       │     │  1. Validates TPM is alive     │     │
+│  │  • Monitors TPM state │     │  2. Encrypts unseal keys       │     │
+│  │  • Checks .enc files  │     │     with TPM → saves .enc      │     │
+│  │  • Checks Vault health│     │  3. Unseals Vault via PKCS#11  │     │
+│  │  • Exposes port 8080  │     │                                │     │
+│  └───────────┬───────────┘     └───────────────┬───────────────┘     │
+│              │  health check                    │  init complete      │
+│              │                                  ▼                     │
+│              │                    ┌─────────────────────────┐         │
+│              │                    │     HashiCorp Vault      │         │
+│              │                    │                          │         │
+│              └───────────────────►│  Sealed at boot          │         │
+│                 continuous        │  Unsealed only after     │         │
+│                 monitoring        │  TPM validation passes   │         │
+│                                   │                          │         │
+│                                   │  Port 8200               │         │
+│                                   └──────────────────────────┘         │
+└─────────────────────────────────────────────────────────────────────┘
+
+Boot sequence:
+  Boot → TPM Validation → Vault Init (encrypt + unseal) → Vault Operational
 ```
 
-**Authentication flow:**
+**Startup sequence:**
 
-1. On boot, `unseal_and_start.py` instructs the TPM to unseal the private key (only possible if PCR values match the expected boot state).
-2. The client signs a challenge (or presents its TLS certificate derived from the sealed key) to the server.
-3. The server validates the signature / certificate chain and grants access.
-4. If PCR values have changed (e.g., due to firmware tampering), unsealing fails and the device cannot authenticate.
+1. Docker Compose brings up `tpm-validator` first; it verifies TPM accessibility and health.
+2. `vault-init` starts next: `vault_initializer.py` encrypts Vault's unseal keys using the TPM and stores the resulting `.enc` files in the `tpm-data/` volume (not versioned).
+3. HashiCorp Vault starts and is unsealed using the TPM-decrypted key material.
+4. `tpm-validator` continues running, periodically checking the TPM state, `.enc` files, and Vault health, and exposing results on port 8080.
 
 ---
 
 ## 3. Directory Structure
 
 ```
-iot-tpm/
-├── unseal_and_start.py          # Entry point: unseals TPM key and launches client
-├── Dockerfile                   # Container image for the IoT agent
+vault-tpm/
+├── docker-compose.yml              # Three-service orchestration (vault, vault-init, tpm-validator)
+├── vault-config.hcl                # Vault server configuration (storage, listener, API address)
+├── requirements.txt                # Top-level Python dependencies
 ├── README.md
 │
-├── client-iot/
-│   ├── client_rest_api/
-│   │   ├── client_iot.py        # REST API client (HTTPS + TPM auth)
-│   │   ├── requirements.txt
-│   │   └── app/
-│   │       └── certs/
-│   │           └── gerar_certificados.py  # TLS cert generation for REST client
-│   │
-│   └── client_mqtt/
-│       ├── client_mqtt.py       # MQTT client (TLS + TPM auth)
-│       ├── Dockerfile           # Container image for MQTT client
-│       ├── Dockerfile.arm64     # ARM64 variant (e.g., Raspberry Pi)
-│       ├── docker-compose.yml
-│       └── requirements.txt
+├── scripts/
+│   └── setup_vault_policies.hcl   # Minimum-privilege Vault access policies (HCL)
 │
-└── server/
-    ├── gerar_certificados.py    # TLS cert generation for server (CA, server cert/key)
-    │
-    ├── server_rest_api/
-    │   ├── main.py              # Application entry point (Uvicorn startup)
-    │   ├── server_rest_api.py   # FastAPI route handlers
-    │   ├── docker-compose.yml
-    │   └── requirements.txt
-    │
-    └── server_mqtt/
-        ├── server_mqtt.py       # MQTT subscriber / authentication handler
-        ├── mosquitto.conf       # Mosquitto broker configuration
-        ├── Dockerfile
-        ├── docker-compose.yml
-        └── requirements.txt
+├── templates/
+│   └── index.html                  # Web UI template served by tpm-validator
+│
+├── tpm-validator/
+│   ├── Dockerfile                  # Container image (x86_64 / amd64)
+│   ├── Dockerfile.debian           # Debian-based variant
+│   ├── tpm_validator.py            # Main health-check service (port 8080)
+│   ├── health_check.py             # TPM and Vault health-check helper
+│   └── requirements.txt            # Python dependencies for this service
+│
+├── vault-init/
+│   ├── Dockerfile                  # Container image (x86_64 / amd64)
+│   ├── Dockerfile.debian           # Debian-based variant
+│   ├── vault_initializer.py        # Vault initializer: TPM encrypt → unseal
+│   └── requirements.txt            # Python dependencies for this service
+│
+├── setup_secret.sh                 # Helper script: writes an example secret into Vault
+├── system_status.sh                # Displays overall stack health (TPM, Vault, containers)
+├── test_tpm_integration.sh         # End-to-end TPM ↔ Vault integration test suite
+└── validade_system.sh              # System validation script (filename is as in the repo)
 ```
 
-**Notes on unversioned / local-only paths:**
-
-| Path | Status | Notes |
-|---|---|---|
-| `iot-tpm/sealed_key.pub` | **Not versioned** | Generated locally by the TPM seal operation |
-| `iot-tpm/sealed_key.priv` | **Not versioned** | Generated locally by the TPM seal operation |
-| `iot-tpm/certs/` | **Not versioned / planned** | Runtime TLS certificates |
-| `iot-tpm/data/` | **Not versioned / planned** | Runtime data storage |
-| `iot-tpm/logs/` | **Not versioned / planned** | Runtime logs |
-| `iot-tpm/.env` | **Not versioned / planned** | Environment variables (secrets) |
-| `server/certs/` | **Not versioned** | Generated by `server/gerar_certificados.py` — contains `ca.crt`, `server.crt`, `server.key` |
+**Notes on unversioned / runtime artifacts** — see [Section 9](#9-unversioned--runtime-artifacts).
 
 ---
 
@@ -142,366 +146,290 @@ iot-tpm/
 
 | Requirement | Version | Notes |
 |---|---|---|
-| Python | 3.10+ | |
-| Docker | 24.0+ | Required for containerized deployment |
-| Docker Compose | v2.x | |
-| TPM 2.0 | — | Physical chip or software emulator (e.g., `swtpm`) |
+| Docker | 24.0+ | Required |
+| Docker Compose | v2.x | Required |
+| Python | 3.10+ | For running scripts outside containers |
+| TPM 2.0 | — | Physical chip (e.g., Infineon SLB9670) or software emulator (`swtpm`) |
 | `tpm2-tools` | 5.x | Must be installed on the host |
 | `tpm2-pytss` | latest | Python bindings for TPM 2.0 TSS |
-| OpenSSL | 3.x | Certificate generation |
 
-**Operating system:** Linux (tested on Ubuntu 22.04 and Raspberry Pi OS Bookworm).
+**Operating system:** Linux (tested on Ubuntu 22.04 LTS).
 
----
-
-## 5. Initial Setup
-
-### 5.1 Clone the repository
+#### Verify TPM availability on the host
 
 ```bash
-git clone https://github.com/<owner>/app-tpm.git
-cd app-tpm/iot-tpm
-```
+# Check for TPM character devices
+ls /dev/tpm*
+# Expected: /dev/tpm0 and/or /dev/tpmrm0
 
-### 5.2 Install Python dependencies (host / development)
+# Verify TPM kernel modules
+lsmod | grep tpm
 
-```bash
-# REST API client
-pip install -r client-iot/client_rest_api/requirements.txt
-
-# MQTT client
-pip install -r client-iot/client_mqtt/requirements.txt
-
-# REST API server
-pip install -r server/server_rest_api/requirements.txt
-
-# MQTT server
-pip install -r server/server_mqtt/requirements.txt
-```
-
-### 5.3 Generate TLS certificates
-
-Generate the server-side certificates first (CA + server cert/key):
-
-```bash
-cd iot-tpm/server/
-python gerar_certificados.py
-```
-
-This creates `server/certs/` (unversioned) containing `ca.crt`, `server.crt`, and `server.key`.
-
-For the REST API client's TLS certificates, a dedicated script is also available:
-
-```bash
-cd iot-tpm/client-iot/client_rest_api/app/certs/
-python gerar_certificados.py
-```
-
-### 5.4 Seal the TPM key
-
-```bash
-cd iot-tpm/
-# Create primary key and seal private key to current PCR state
-tpm2_createprimary -C e -g sha256 -G ecc -c primary.ctx
-tpm2_create -G rsa2048 -u sealed_key.pub -r sealed_key.priv -C primary.ctx \
-    -L "pcr:sha256:0,1,2,3,4,7"
-```
-
-> `sealed_key.pub` and `sealed_key.priv` are generated locally and **must not be committed to version control**.
-
-### 5.5 Configure environment variables
-
-Create `iot-tpm/.env` (unversioned):
-
-```dotenv
-SERVER_HOST=192.168.1.100
-SERVER_PORT=8443
-MQTT_BROKER_HOST=192.168.1.100
-MQTT_BROKER_PORT=8883
-TPM_PCR_BANK=sha256
-TPM_PCR_LIST=0,1,2,3,4,7
+# Quick functional test
+sudo tpm2_getrandom 4
 ```
 
 ---
 
-## 6. Execution
+## 5. Configuration
 
-All commands below assume the working directory is `iot-tpm/` unless otherwise stated.
+### 5.1 Vault server — `vault-config.hcl`
 
-### 6.1 Unseal and start (recommended entry point)
+`vault-config.hcl` configures the Vault server process itself: the storage backend (file-based by default for this prototype), the TCP listener address and port, and the public API address returned to clients.
 
-```bash
-cd iot-tpm/
-python unseal_and_start.py
+```hcl
+# vault-config.hcl (excerpt — adjust for production)
+storage "file" {
+  path = "/vault/data"
+}
+
+listener "tcp" {
+  address     = "0.0.0.0:8200"
+  tls_disable = true          # Enable TLS before deploying to production
+}
+
+api_addr = "http://0.0.0.0:8200"
 ```
 
-This script:
-1. Instructs the TPM to unseal `sealed_key.priv` using the current PCR values.
-2. Launches the appropriate client (REST or MQTT, depending on configuration).
-3. If unsealing fails (PCR mismatch), the script exits with an error — no credentials are exposed.
+> **Production note:** Set `tls_disable = false` and provide valid TLS certificates before any non-local deployment. The current configuration is intended for local development and testing only.
 
-### 6.2 REST API server
+### 5.2 Access policies — `scripts/setup_vault_policies.hcl`
 
-#### Run directly
+This HCL file defines minimum-privilege Vault policies for services that need to read or write secrets. Apply them after Vault is initialized:
 
 ```bash
-cd iot-tpm/
-python server/server_rest_api/main.py
+vault policy write app-policy scripts/setup_vault_policies.hcl
 ```
 
-#### Run with Docker Compose
+Policies follow the principle of least privilege: each service receives only the capabilities (`read`, `list`, `create`, `update`, or `delete`) it strictly requires on the paths it accesses.
+
+### 5.3 Development token
+
+In development mode (`VAULT_DEV_ROOT_TOKEN_ID=root`), the default Vault root token is `root`. **Remove dev mode and use TPM-only auto-unseal in any production deployment.**
+
+---
+
+## 6. Running the Stack
+
+### 6.1 Clone the repository
 
 ```bash
-cd iot-tpm/server/server_rest_api/
-docker-compose up --build
+git clone https://github.com/juarez1972/app-tpm.git
+cd app-tpm/vault-tpm
 ```
 
-### 6.3 MQTT server (Mosquitto + subscriber)
-
-#### Run directly
+### 6.2 Bring up the full environment
 
 ```bash
-cd iot-tpm/
-python server/server_mqtt/server_mqtt.py
+docker-compose up -d
 ```
 
-#### Run with Docker Compose
+Docker Compose starts the three services in dependency order: `tpm-validator` → `vault-init` → `vault`.
+
+### 6.3 Follow startup logs
 
 ```bash
-cd iot-tpm/server/server_mqtt/
-docker-compose up --build
+docker-compose logs -f
 ```
 
-### 6.4 REST API client
+### 6.4 Check overall system status
 
 ```bash
-cd iot-tpm/
-python client-iot/client_rest_api/client_iot.py
+./system_status.sh
 ```
 
-### 6.5 MQTT client
+### 6.5 Write an example secret
 
-#### Run directly
+After Vault is operational, populate an example secret using the provided helper:
 
 ```bash
-cd iot-tpm/
-python client-iot/client_mqtt/client_mqtt.py
+./setup_secret.sh
 ```
 
-#### Run with Docker Compose (x86_64)
+`setup_secret.sh` authenticates to Vault, creates the target KV path, and writes a sample key-value pair — useful for verifying that the unseal flow completed successfully and that write access is functioning.
+
+### 6.6 Tear down the stack
 
 ```bash
-cd iot-tpm/client-iot/client_mqtt/
-docker-compose up --build
+docker-compose down
 ```
 
-#### Run with Docker (ARM64 — e.g., Raspberry Pi)
+To also remove named volumes (including `tpm-data` and `vault-data`):
 
 ```bash
-cd iot-tpm/client-iot/client_mqtt/
-docker build -f Dockerfile.arm64 -t iot-tpm-mqtt-arm64 .
-docker run --rm --device /dev/tpm0 --device /dev/tpmrm0 iot-tpm-mqtt-arm64
-```
-
-### 6.6 Full IoT agent (Docker)
-
-The root-level `Dockerfile` packages the entire IoT agent:
-
-```bash
-cd iot-tpm/
-docker build -t iot-tpm-agent .
-docker run --rm \
-  --device /dev/tpm0 \
-  --device /dev/tpmrm0 \
-  -v "$(pwd)/sealed_key.pub:/app/sealed_key.pub:ro" \
-  -v "$(pwd)/sealed_key.priv:/app/sealed_key.priv:ro" \
-  --env-file .env \
-  iot-tpm-agent
+docker-compose down -v
 ```
 
 ---
 
-## 7. Communication Protocols
+## 7. Component Details
 
-### 7.1 REST API (HTTPS)
+### 7.1 Component summary
 
-| Item | Value |
+| Container | Image source | Port | Role |
+|---|---|---|---|
+| `vault` | `hashicorp/vault` | `8200` | Secret store — only starts after TPM validation |
+| `vault-init` | `vault-init/Dockerfile` | — | Encrypts unseal keys via TPM; initializes Vault |
+| `tpm-validator` | `tpm-validator/Dockerfile` | `8080` | Continuous health monitor: TPM + `.enc` files + Vault |
+
+### 7.2 `vault-init/vault_initializer.py`
+
+Orchestrates the secure initialization sequence:
+
+1. Connects to the host TPM via `tpm2-pytss`.
+2. Generates Vault unseal keys and encrypts them using the TPM public key — the resulting `.enc` files are written to the `tpm-data/` volume.
+3. Unseals Vault by decrypting the key material inside the TPM (the plaintext key is never written to disk).
+4. In development mode, a plaintext `.txt` copy is also written for debugging. **Remove this in production.**
+
+### 7.3 `tpm-validator/tpm_validator.py`
+
+Runs as a long-lived service that:
+
+- Periodically checks TPM accessibility (via `tpm2_getrandom` or equivalent).
+- Verifies that the expected `.enc` files are present in the `tpm-data/` volume.
+- Polls the Vault health endpoint (`GET /v1/sys/health`).
+- Exposes all results on port **8080** via an HTTP health endpoint — the `templates/index.html` provides a simple web dashboard for this data.
+
+### 7.4 `tpm-validator/health_check.py`
+
+Helper module called by `tpm_validator.py`. Encapsulates individual health-check functions for the TPM subsystem and Vault API, keeping the main service file focused on HTTP serving and scheduling.
+
+### 7.5 `scripts/setup_vault_policies.hcl`
+
+HCL policy definitions for minimum-privilege Vault access. Referenced in the root README (Section 6.2) as part of the broader secret lifecycle. Apply after initialization using the Vault CLI (see [Section 5.2](#52-access-policies----scriptssSetup_vault_policieshcl)).
+
+### 7.6 `vault-config.hcl`
+
+Vault server configuration file: defines the storage backend, TCP listener, and public API address. Mounted into the `vault` container at startup. See [Section 5.1](#51-vault-server----vault-confighcl) for details.
+
+### 7.7 Shell scripts
+
+| Script | Purpose |
 |---|---|
-| Default port | `8443` |
-| TLS | Mutual TLS (mTLS) |
-| Authentication endpoint | `POST /auth` |
-| Payload | JSON with TPM-signed challenge |
-| Server framework | FastAPI + Uvicorn |
-
-**Authentication sequence:**
-
-```
-Client                                 Server
-  │                                      │
-  │──── POST /auth {device_id, sig} ────►│
-  │                                      │ verify sig against TPM pub key
-  │◄─── 200 OK {token} ─────────────────│
-  │                                      │
-```
-
-### 7.2 MQTT (TLS)
-
-| Item | Value |
-|---|---|
-| Default port | `8883` |
-| TLS | Server TLS + client certificate |
-| Broker | Eclipse Mosquitto (configured via `mosquitto.conf`) |
-| Auth topic | `auth/device/{device_id}` |
-| Server handler | `server_mqtt.py` (Python subscriber) |
-
-**Authentication sequence:**
-
-```
-Client                          Mosquitto Broker        server_mqtt.py
-  │                                    │                      │
-  │──── CONNECT (TLS client cert) ────►│                      │
-  │◄─── CONNACK ───────────────────────│                      │
-  │                                    │                      │
-  │──── PUBLISH auth/device/{id} ─────►│──── message ────────►│
-  │                                    │                      │ verify signature
-  │◄─── PUBLISH auth/response/{id} ────│◄─── response ────────│
-  │                                    │                      │
-```
+| `system_status.sh` | Queries and prints the health of all three containers, the TPM device, and Vault |
+| `test_tpm_integration.sh` | End-to-end integration tests: TPM read, Vault write, Vault read, health checks |
+| `setup_secret.sh` | Writes an example secret to Vault — useful for smoke-testing after initialization |
+| `validade_system.sh` | Full system validation script (note: filename in the repository is `validade_system.sh`, not `validate_system.sh`) |
 
 ---
 
-## 8. Security Model
+## 8. Validation & Testing
 
-### 8.1 TPM Key Sealing
-
-Keys are sealed against a set of PCR (Platform Configuration Register) values that reflect the device's measured boot state:
-
-| PCR | Measures |
-|---|---|
-| PCR 0 | Core UEFI firmware |
-| PCR 1 | UEFI firmware configuration |
-| PCR 2 | Option ROMs |
-| PCR 3 | Option ROM configuration |
-| PCR 4 | Boot manager code |
-| PCR 7 | Secure Boot state |
-
-If any of these values change (e.g., firmware update, Secure Boot disabled, or OS tampering), the TPM will refuse to unseal the key — the device loses the ability to authenticate until the key is re-sealed by an authorized operator.
-
-### 8.2 Threat Mitigations
-
-| Threat | Mitigation |
-|---|---|
-| Key theft (software) | Private key never leaves the TPM; only the TPM can perform operations with it |
-| Firmware tampering | PCR-based sealing detects measurement changes |
-| Replay attacks | Challenge-response with nonces; TLS record layer |
-| MITM | mTLS (REST) / TLS with client certificates (MQTT) |
-| Credential exposure | `.env` and `sealed_key.*` are unversioned and never committed |
-
-### 8.3 Zero Trust Assumptions
-
-This module implements the **device identity** pillar of the hybrid Zero Trust architecture described in the referenced paper. It does **not** implement:
-
-- Network micro-segmentation (handled at the infrastructure layer)
-- User identity federation (handled by a separate module)
-- Policy decision point (handled by the server-side trust engine)
-
----
-
-## 9. Certificate Generation
-
-Two certificate generation scripts are included:
-
-### 9.1 Server-side certificates (CA + server cert/key)
+### 8.1 TPM health
 
 ```bash
-cd iot-tpm/server/
-python gerar_certificados.py
+# From the host
+sudo tpm2_getrandom 4
+
+# Via the tpm-validator health endpoint
+curl http://localhost:8080/status
 ```
 
-Generates under `server/certs/` (unversioned):
-
-| File | Description |
-|---|---|
-| `ca.crt` | Self-signed CA certificate |
-| `server.crt` | Server certificate signed by the CA |
-| `server.key` | Server private key |
-
-### 9.2 REST client TLS certificates
-
-A second script handles certificate generation specifically for the REST API client:
+### 8.2 Vault health
 
 ```bash
-cd iot-tpm/client-iot/client_rest_api/app/certs/
-python gerar_certificados.py
+curl http://localhost:8200/v1/sys/health
 ```
 
-This produces the client-side certificates needed for mTLS with the REST API server. The output files are stored locally under `client-iot/client_rest_api/app/certs/` and are **not versioned**.
+Expected response for a healthy, unsealed Vault:
 
-### 9.3 Distribution
-
-After generation, distribute the CA certificate to clients (for REST) and configure Mosquitto with the CA, server cert, and server key (for MQTT). See `server/server_mqtt/mosquitto.conf` for the broker TLS configuration directives.
-
----
-
-## 10. Troubleshooting
-
-### TPM device not found
-
-```
-Error: /dev/tpm0: No such file or directory
-```
-
-**Solution:** Verify that the TPM driver is loaded (`ls /dev/tpm*`) and that the container is started with `--device /dev/tpm0 --device /dev/tpmrm0`.
-
-### PCR mismatch / unsealing failure
-
-```
-Error: TPM2_CC_Unseal failed: TPM_RC_POLICY_FAIL
+```json
+{
+  "initialized": true,
+  "sealed": false,
+  "standby": false,
+  "performance_standby": false,
+  "replication_performance_mode": "disabled",
+  "replication_dr_mode": "disabled",
+  "server_time_utc": 1234567890,
+  "version": "1.15.x"
+}
 ```
 
-**Solution:** The device's PCR values no longer match those recorded at sealing time. Common causes: firmware update, Secure Boot configuration change, kernel update that alters measured boot. An authorized operator must re-seal the key against the new PCR state.
-
-### MQTT TLS handshake failure
-
-```
-SSL: CERTIFICATE_VERIFY_FAILED
-```
-
-**Solution:** Ensure `ca.crt` is correctly referenced in the client configuration and that the server certificate was signed by the same CA. Regenerate certificates if the CA has changed (see [Section 9](#9-certificate-generation)).
-
-### REST API 401 Unauthorized
-
-**Possible causes:**
-
-1. TPM signature verification failed — check that `sealed_key.pub` matches the key used to sign the challenge.
-2. Challenge nonce expired — synchronize clocks between client and server (use NTP).
-3. mTLS client certificate not presented — verify `client_iot.py` is loading the correct certificate path.
-
-### Docker permission denied on TPM device
-
-```
-open /dev/tpm0: permission denied
-```
-
-**Solution:** Add the user to the `tss` group on the host:
+### 8.3 Container logs
 
 ```bash
-sudo usermod -aG tss $USER
-# Log out and back in, then re-run Docker
+docker-compose logs --tail=20
+docker-compose logs vault-init --tail=50
+docker-compose logs tpm-validator --tail=20
+```
+
+### 8.4 Integration test suite
+
+```bash
+./test_tpm_integration.sh
+```
+
+The test suite covers:
+
+- Real-time TPM validation
+- Inter-container communication
+- Vault write and read operations
+- Data persistence across container restarts
+- Automatic recovery after Vault restart
+- Continuous health check operation
+
+### 8.5 System-level validation
+
+```bash
+./system_status.sh
+./validade_system.sh
 ```
 
 ---
 
-## 11. References
+## 9. Unversioned / Runtime Artifacts
 
-1. Langaro, J. S.; Santin, A. O.; Viegas, E. K.; Veiga, F. M.; Oliveira, J. **"A Hybrid Zero Trust Architecture for Non-Interactive Authentication"**. PPGIa/PUCPR, Brazil.
-2. [TPM 2.0 Library Specification — Trusted Computing Group](https://trustedcomputinggroup.org/resource/tpm-library-specification/)
-3. [tpm2-tools documentation](https://tpm2-tools.readthedocs.io/)
-4. [tpm2-pytss — Python TSS bindings](https://github.com/tpm2-software/tpm2-pytss)
-5. [Eclipse Mosquitto MQTT broker](https://mosquitto.org/)
-6. [FastAPI documentation](https://fastapi.tiangolo.com/)
-7. [NIST SP 800-207 — Zero Trust Architecture](https://csrc.nist.gov/publications/detail/sp/800-207/final)
+The following paths are generated at runtime by the stack and are intentionally **not committed to version control**. They contain secret material or are ephemeral build artifacts.
+
+| Path | Status | Notes |
+|---|---|---|
+| `tpm-data/` | **Not versioned — runtime** | Sealed unseal keys (`*.enc`) and root token generated by `vault_initializer.py`; created on first `docker-compose up` |
+| `tpm-data/secret` | **Not versioned — runtime** | Encrypted Vault unseal key |
+| `tpm-data/vault-root-key` | **Not versioned — runtime** | Encrypted Vault root token |
+| `vault-data/` | **Not versioned — runtime** | Vault storage backend data; persists secrets between restarts |
+| `.env` | **Not versioned — planned** | Environment variables (Vault token, TPM paths, etc.) |
+
+> **Never commit `tpm-data/` or `vault-data/` to version control.** Both directories contain cryptographic material. Ensure they are listed in `.gitignore`.
 
 ---
 
-*Part of the [app-tpm](../README.md) project — PPGIa/PUCPR, Brazil.*
+## 10. Notes
+
+### TLS in production
+
+Vault currently listens on HTTP (`tls_disable = true` in `vault-config.hcl`). Before any non-local deployment, configure TLS:
+
+```hcl
+listener "tcp" {
+  address       = "0.0.0.0:8200"
+  tls_cert_file = "/vault/certs/vault.crt"
+  tls_key_file  = "/vault/certs/vault.key"
+}
+```
+
+### Removing development mode
+
+The `vault-init` container uses `VAULT_DEV_ROOT_TOKEN_ID=root` for local testing. In production:
+
+1. Remove the `VAULT_DEV_ROOT_TOKEN_ID` environment variable from `docker-compose.yml`.
+2. Remove any plaintext `.txt` key dumps in `vault_initializer.py`.
+3. Use Vault's native auto-unseal via PKCS#11 pointing to the TPM.
+
+### Software TPM (swtpm) for CI/CD
+
+If no physical TPM is available, use `swtpm` to emulate one:
+
+```bash
+mkdir /tmp/mytpm
+swtpm socket --tpmstate dir=/tmp/mytpm --tpm2 --ctrl type=unixio,path=/tmp/mytpm.sock &
+export TPM2TOOLS_TCTI="swtpm:path=/tmp/mytpm.sock"
+```
+
+### Dockerfile variants
+
+Both `vault-init/` and `tpm-validator/` include a standard `Dockerfile` and a `Dockerfile.debian`. The Debian variants may be preferred in environments where Alpine-based images cause `glibc`/`musl` compatibility issues with TPM libraries.
+
+---
+
+*Part of the [app-tpm](https://github.com/juarez1972/app-tpm) project — PPGIa/PUCPR, Brazil.*
