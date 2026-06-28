@@ -1,4 +1,0 @@
-.env
-proxy/certs/*.pem
-__pycache__/
-	*.pyc
