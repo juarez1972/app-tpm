@@ -321,6 +321,7 @@ Para o modo MQTT com TLS, utilize o script incluído:
 
 > **Nota:** O script `gerar_certificados.py`, bem como os diretórios `certs/` e `data/logs/`, são criados pelo usuário localmente e não estão versionados no repositório. Execute os passos abaixo no ambiente de desenvolvimento antes de iniciar os serviços.
 
+cd iot-tpm/server/                   
 ```bash
 # Instalar dependência
 pip install cryptography
