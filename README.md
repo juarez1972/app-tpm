@@ -117,15 +117,20 @@ app-tpm/
 │   │   │   └── client_iot.py
 │   │   └── client_mqtt/         # Cliente MQTT para IoT de baixa largura de banda
 │   │       └── client_mqtt.py
-│   ├── server/
-│   │   ├─ certs/             # certificados TLS (não versionados)
-│   │   ├─ gerar_certificados.py
-│   │   ├── server_rest_api/     # Backend FastAPI + integração Vault
-│   │   │   ├── main.py          # Versão com Vault
-│   │   │   ├── server_rest_api.py  # Versão standalone (testes sem Vault)
-│   │   │   └── docker-compose.yml
-│   │   └── server_mqtt/         # Subscriber MQTT + validação Vault
-│   │       └── server_mqtt.py
+├── server/
+│   ├── certs/
+│   ├── gerar_certificados.py
+│   ├── server_rest_api/
+│   │   ├── main.py
+│   │   ├── server_rest_api.py
+│   │   ├── docker-compose.yml
+│   │   └── requirements.txt
+│   └── server_mqtt/              ← mover para dentro de server/
+│       ├── Dockerfile
+│       ├── docker-compose.yml
+│       ├── mosquitto.conf
+│       ├── server_mqtt.py
+│       └── requirements.txt
 │   ├── Dockerfile               # Entrypoint do contêiner IoT (TPM + Twingate)
 │   └── unseal_and_start.py      # Unseal TPM → inicializa cliente Twingate (ZTNA)
 │
