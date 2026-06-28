@@ -7,7 +7,7 @@
 ![Docker](https://img.shields.io/badge/docker-compose-blue)
 
 > **Reference Article:** "A Hybrid Zero Trust Architecture for Non-Interactive Authentication: Integrating Hardware Trust Anchors with Software-Defined Secret Management in Infrastructure as Code"
-> Langaro, J. S.; Santin, A. O.; Viegas, E. K.; Veiga, F. M.; Oliveira, J. — PPGIa/PUCPR, Brazil.
+> Oliveira, J., Langaro, J. S.; Veiga, F. M.;  Viegas, E. K.; Santin, A. O.; — PPGIa/PUCPR, Brazil.
 
 This repository contains the reference implementation of the hybrid architecture proposed in the article above. The prototype integrates **hardware trust anchors** (TPM 2.0, Intel SGX, Intel TDX) with **software-defined secret management** (HashiCorp Vault) and **network micro-segmentation** (Zero Trust Network Access — ZTNA), eliminating the "Secret Zero" problem in Infrastructure as Code (IaC) and IoT environments.
 
@@ -662,7 +662,7 @@ Developed by researchers from the Graduate Program in Computer Science (PPGIa) �
 | Juarez de Oliveira, M.Sc. | [juarez.oliveira@ppgia.pucpr.edu.br](mailto:juarez.oliveira@ppgia.pucpr.edu.br) |
 | Juliano Sartori Langaro, M.Sc. | [juliano.langaro@ppgia.pucpr.edu.br](mailto:juliano.langaro@ppgia.pucpr.edu.br) |
 | Fellipe Medeiros Veiga  , M.Sc. | [fellipe.veiga@ppgia.pucpr.edu.br](mailto:fellipe.veiga@ppgia.pucpr.edu.br) |
-| Eduardo Kugler Viegas, PhD. *(Supervisor)* [eduardo.viegas@ppgia.pucpr.br](mailto:eduardo.viegas@pucpr.br) |
+| Eduardo Kugler Viegas, PhD. *(Supervisor)* | [eduardo.viegas@ppgia.pucpr.br](mailto:eduardo.viegas@pucpr.br) |
 | Altair Olivo Santin, PhD. *(Supervisor)* | [altair.santin@ppgia.pucpr.br](mailto:altair.santin@pucpr.br) |
  
 
