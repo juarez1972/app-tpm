@@ -121,11 +121,13 @@ app-tpm/
 │   ├── certs/
 │   ├── gerar_certificados.py
 │   ├── server_rest_api/
+│   │   ├── certs/
 │   │   ├── main.py
 │   │   ├── server_rest_api.py
 │   │   ├── docker-compose.yml
 │   │   └── requirements.txt
-│   └── server_mqtt/              ← mover para dentro de server/
+│   └── server_mqtt/
+│       ├── certs/
 │       ├── Dockerfile
 │       ├── docker-compose.yml
 │       ├── mosquitto.conf
