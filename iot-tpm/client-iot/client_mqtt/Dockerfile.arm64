@@ -1,0 +1,29 @@
+FROM --platform=linux/arm64 python:3.11-slim
+
+# Instala dependências para TPM, BCC e compilação — alvo ARM64 (Raspberry Pi 4/5)
+# Requer QEMU registrado no host via:
+#   docker run --privileged --rm tonistiigi/binfmt --install all
+# E builder multi-arch ativo via:
+#   docker buildx create --use
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libffi-dev \
+    libssl-dev \
+    libtss2-dev \
+    tpm2-tools \
+    bpfcc-tools \
+    python3-bpfcc \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Instala dependências Python
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copia o código da aplicação
+COPY . .
+
+# Executa o cliente MQTT
+CMD ["python", "-u", "client_mqtt.py"]

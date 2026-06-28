@@ -1,0 +1,54 @@
+services:
+
+  # ── Desenvolvimento local (x86_64) ───────────────────────────────────────────
+  # Uso: docker compose --profile dev up --build
+  client-mqtt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: client-mqtt
+    restart: unless-stopped
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+      - SYS_RESOURCE
+      - NET_ADMIN
+    devices:
+      - "/dev/tpm0:/dev/tpm0"
+    volumes:
+      - /sys/kernel/debug:/sys/kernel/debug:rw
+      - ./certs:/app/certs:ro
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    profiles: ["dev"]
+
+  # ── Alvo ARM64 (Raspberry Pi 4/5) ────────────────────────────────────────────
+  # Em host x86: requer QEMU + buildx configurados uma única vez:
+  #   docker run --privileged --rm tonistiigi/binfmt --install all
+  #   docker buildx create --use
+  # Em Raspberry Pi real: roda nativo sem emulação.
+  # Uso: docker compose --profile arm64 up --build
+  client-mqtt-arm64:
+    build:
+      context: .
+      dockerfile: Dockerfile.arm64
+    platform: linux/arm64
+    container_name: client-mqtt-arm64
+    restart: unless-stopped
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+      - SYS_RESOURCE
+      - NET_ADMIN
+    devices:
+      - "/dev/tpm0:/dev/tpm0"
+    volumes:
+      - /sys/kernel/debug:/sys/kernel/debug:rw
+      - ./certs:/app/certs:ro
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    profiles: ["arm64"]
