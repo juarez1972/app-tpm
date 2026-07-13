@@ -6,9 +6,13 @@ services:
     container_name: vault
     ports:
       - "8201:8200"
-    command: server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
+    command: server -config=/vault/config/vault.hcl
     cap_add:
       - IPC_LOCK
+    volumes:
+      - ./vault/config:/vault/config:ro
+      - ./vault/data:/vault/file
+      - ./vault/logs:/vault/logs
     networks:
       - vault-network
 
