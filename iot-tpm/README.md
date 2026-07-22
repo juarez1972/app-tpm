@@ -1,8 +1,9 @@
 # IoT-TPM: Non-Interactive Authentication Agent with TPM 2.0
 
 ![app-tpm](https://img.shields.io/badge/project-app--tpm-blue)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Docker](https://img.shields.io/badge/docker-required-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python)
+![Docker](https://img.shields.io/badge/docker-compose-blue?logo=docker)
+![TPM 2.0](https://img.shields.io/badge/TPM-2.0-black)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 > Component of the prototype described in:
