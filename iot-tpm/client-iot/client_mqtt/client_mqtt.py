@@ -25,6 +25,8 @@ import paho.mqtt.client as mqtt
 import pyotp
 from dotenv import load_dotenv
 
+from crypto_envelope import seal_otp
+
 load_dotenv()
 
 # ── Configuração ──────────────────────────────────────────────────────────────
@@ -34,6 +36,8 @@ MQTT_PORT    = int(os.getenv("MQTT_PORT", "8883"))
 MQTT_TOPIC   = os.getenv("MQTT_TOPIC_VERIFY", "iot/verify")
 CA_CERT      = os.getenv("CA_CERT")        # opcional — TLS só ativo se o arquivo existir
 OTP_INTERVAL = int(os.getenv("OTP_INTERVAL", "60"))
+# Modo de envio: 'hmac' (envelope HMAC, default) ou 'plain' (legado).
+OTP_MODE     = os.getenv("OTP_MODE", "hmac").strip().lower()
 
 # TPM
 TPM_DATA_DIR   = os.getenv("TPM_DATA_DIR", "./tpm-data")
@@ -171,10 +175,17 @@ def main():
         print(f"Erro ao conectar: {e}")
 
     totp = pyotp.TOTP(otp_secret, interval=OTP_INTERVAL)
-    print("Iniciando loop de autenticação OTP...")
+    print(f"Iniciando loop de autenticação OTP (modo de envio: {OTP_MODE})...")
     while True:
-        payload = {"client_id": CLIENT_ID, "otp_code": totp.now()}
-        print(f"Enviando OTP: {payload['otp_code']}")
+        otp_code = totp.now()
+        if OTP_MODE == "plain":
+            payload = {"client_id": CLIENT_ID, "otp_code": otp_code}
+            print("Enviando OTP (plain).")
+        else:
+            # Envelope HMAC — o OTP nunca trafega em claro.
+            envelope = seal_otp(otp_secret, otp_code)
+            payload = {"client_id": CLIENT_ID, "envelope": envelope}
+            print(f"Enviando envelope HMAC (nonce={envelope['nonce'][:8]}…).")
         try:
             client.publish(MQTT_TOPIC, json.dumps(payload))
         except Exception as e:

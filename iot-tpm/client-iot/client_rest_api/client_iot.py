@@ -30,12 +30,17 @@ import requests
 import pyotp
 from dotenv import load_dotenv
 
+from crypto_envelope import seal_otp
+
 load_dotenv()
 
 # ── Configuração ──────────────────────────────────────────────────────────────
 DEVICE_ID    = os.getenv("DEVICE_ID", "device-001")
 API_URL      = os.getenv("API_URL", "http://127.0.0.1:5000").rstrip("/")
 OTP_INTERVAL = int(os.getenv("OTP_INTERVAL", "60"))
+# Modo de envio do OTP: 'hmac' (envelope HMAC, default) ou 'plain' (legado).
+# Em 'hmac' o código nunca trafega em claro — só o HMAC-SHA256(seed, otp|nonce|ts).
+OTP_MODE     = os.getenv("OTP_MODE", "hmac").strip().lower()
 CA_CERT      = os.getenv("CA_CERT")  # opcional — verifica TLS do servidor se definido
 
 # Credenciais estáticas OPCIONAIS (só usadas se o servidor as exigir)
@@ -179,14 +184,22 @@ def main():
         print("[!] Não foi possível abrir sessão. Encerrando.")
         sys.exit(1)
 
-    print("Iniciando loop de autenticação OTP...")
+    print(f"Iniciando loop de autenticação OTP (modo de envio: {OTP_MODE})...")
     while True:
         otp_code = totp.now()
-        print(f"[>] Enviando OTP: {otp_code}")
+        if OTP_MODE == "plain":
+            # Legado: envia o código em texto claro (só protegido por TLS).
+            payload = {"session_token": session_token, "otp_code": otp_code}
+            print("[>] Enviando OTP (plain).")
+        else:
+            # Default: envelope HMAC — o OTP nunca trafega em claro.
+            envelope = seal_otp(otp_secret, otp_code)
+            payload = {"session_token": session_token, "envelope": envelope}
+            print(f"[>] Enviando envelope HMAC (nonce={envelope['nonce'][:8]}…).")
         try:
             check = requests.post(
                 f"{API_URL}/verify",
-                json={"session_token": session_token, "otp_code": otp_code},
+                json=payload,
                 timeout=10, verify=_VERIFY,
             )
             if check.status_code == 200:

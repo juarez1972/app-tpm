@@ -33,6 +33,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
+from crypto_envelope import open_and_verify, ReplayCache
+
 try:
     import hvac
 except ImportError:  # hvac é opcional em modo puramente .env
@@ -44,6 +46,9 @@ load_dotenv()
 HOST = os.getenv("API_HOST", "0.0.0.0")
 PORT = int(os.getenv("API_PORT", "5000"))
 OTP_INTERVAL = int(os.getenv("OTP_INTERVAL", "60"))
+# Modo aceito no /verify: 'hmac' (envelope HMAC, default) ou 'plain' (legado).
+# Em 'hmac' o servidor recomputa o MAC e rejeita nonces repetidos (anti-replay).
+OTP_MODE = os.getenv("OTP_MODE", "hmac").strip().lower()
 
 # Credenciais estáticas OPCIONAIS para o /login (além do device_id).
 # Se ambas estiverem vazias, o login exige apenas um device_id válido.
@@ -77,7 +82,13 @@ class LoginRequest(BaseModel):
 
 class OTPRequest(BaseModel):
     session_token: str
-    otp_code: str
+    # 'plain': código em texto claro; 'hmac': envelope {nonce, ts, mac}.
+    otp_code: str | None = None
+    envelope: dict | None = None
+
+
+# Cache anti-replay de nonces (single-use) para o modo HMAC.
+_replay_cache = ReplayCache()
 
 
 # ── Vault ─────────────────────────────────────────────────────────────────────
@@ -189,7 +200,24 @@ def verify(req: OTPRequest):
         raise HTTPException(status_code=404, detail="Segredo do dispositivo indisponível.")
 
     totp = pyotp.TOTP(secret, interval=OTP_INTERVAL)
-    if totp.verify(req.otp_code, valid_window=1):
+
+    if req.envelope is not None:
+        # Modo HMAC: o OTP nunca chega em claro — valida o envelope + anti-replay.
+        ok = open_and_verify(
+            secret, req.envelope, totp,
+            valid_window=1, replay_cache=_replay_cache,
+        )
+    elif OTP_MODE == "plain" and req.otp_code is not None:
+        # Legado: valida o código em texto claro (aceito apenas se OTP_MODE=plain).
+        ok = totp.verify(req.otp_code, valid_window=1)
+    else:
+        active_sessions.pop(req.session_token, None)
+        raise HTTPException(
+            status_code=400,
+            detail="Envelope HMAC ausente (OTP_MODE=hmac exige 'envelope').",
+        )
+
+    if ok:
         print(f"[+] OTP válido do dispositivo {device_id}")
         return {"status": "valid", "message": "Conexão mantida."}
 

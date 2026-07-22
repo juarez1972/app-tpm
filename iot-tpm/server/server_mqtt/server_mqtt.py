@@ -27,6 +27,8 @@ import paho.mqtt.client as mqtt
 import pyotp
 from dotenv import load_dotenv
 
+from crypto_envelope import open_and_verify, ReplayCache
+
 try:
     import hvac
 except ImportError:  # hvac é opcional em modo puramente .env
@@ -39,6 +41,8 @@ MQTT_BROKER = os.getenv("MQTT_BROKER", "localhost")
 MQTT_PORT   = int(os.getenv("MQTT_PORT", "8883"))
 MQTT_TOPIC  = os.getenv("MQTT_TOPIC_VERIFY", "iot/verify")
 OTP_INTERVAL = int(os.getenv("OTP_INTERVAL", "60"))
+# Modo aceito: 'hmac' (envelope HMAC, default) ou 'plain' (legado).
+OTP_MODE = os.getenv("OTP_MODE", "hmac").strip().lower()
 
 # TLS (opcional — ativo somente se os arquivos existirem)
 CA_CERT     = os.getenv("CA_CERT")
@@ -57,6 +61,8 @@ FALLBACK_OTP_SECRET = os.getenv("OTP_SECRET")
 
 # Cache em memória: device_id -> otp_secret
 _secret_cache: dict[str, str] = {}
+# Cache anti-replay de nonces (single-use) para o modo HMAC.
+_replay_cache = ReplayCache()
 
 
 def get_vault_client():
@@ -133,11 +139,12 @@ def on_connect(client, userdata, flags, rc, properties=None):
 def on_message(client, userdata, msg):
     try:
         data      = json.loads(msg.payload)
-        otp_code  = str(data.get("otp_code", ""))
         client_id = data.get("client_id")
+        envelope  = data.get("envelope")
+        otp_code  = str(data.get("otp_code", ""))
 
-        if not client_id or not otp_code:
-            print("[-] Mensagem inválida (client_id/otp_code ausente).")
+        if not client_id or not (envelope or otp_code):
+            print("[-] Mensagem inválida (client_id/envelope/otp_code ausente).")
             return
 
         response_topic = f"iot/response/{client_id}"
@@ -149,7 +156,21 @@ def on_message(client, userdata, msg):
             return
 
         totp = pyotp.TOTP(secret, interval=OTP_INTERVAL)
-        if totp.verify(otp_code, valid_window=1):
+        if envelope is not None:
+            # Modo HMAC: o OTP nunca chega em claro — valida envelope + anti-replay.
+            ok = open_and_verify(
+                secret, envelope, totp,
+                valid_window=1, replay_cache=_replay_cache,
+            )
+        elif OTP_MODE == "plain":
+            ok = totp.verify(otp_code, valid_window=1)
+        else:
+            print(f"[-] Envelope HMAC ausente do cliente {client_id} (OTP_MODE=hmac).")
+            client.publish(response_topic, json.dumps(
+                {"status": "invalid", "msg": "Envelope HMAC exigido"}))
+            return
+
+        if ok:
             print(f"[+] OTP válido do cliente {client_id}")
             client.publish(response_topic, json.dumps(
                 {"status": "valid", "msg": "Acesso concedido"}))
