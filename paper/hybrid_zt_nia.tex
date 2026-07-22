@@ -127,7 +127,7 @@ confidential computing, TOTP, LLM red-teaming.
 \node[ztna] (conn) {Twingate Connector\\\scriptsize (Docker, outbound only)};
 % Layer 2 - Vault
 \node[vault,below=8mm of conn] (vault) {HashiCorp Vault\\\scriptsize KV\,v2 \texttt{secret/}};
-\node[box,right=8mm of vault] (srv) {IoT Server\\\scriptsize REST :5000 / MQTT :8883};
+\node[box,right=20mm of vault] (srv) {IoT Server\\\scriptsize REST :5000 / MQTT :8883};
 % Layer 1 - TPM (server)
 \node[hw,below=8mm of vault] (stpm) {Server TPM\,2.0\\\scriptsize seals Vault unseal shares};
 
@@ -157,13 +157,13 @@ confidential computing, TOTP, LLM red-teaming.
 % server-side: TPM auto-unseal -> Vault
 \draw[flow] (stpm) -- node[right,font=\scriptsize]{auto-unseal} (vault);
 % server reads seed from Vault
-\draw[flow] (vault) -- node[above,font=\scriptsize]{read \texttt{otp\_secret}} (srv);
+\draw[flow] (vault) -- node[midway,above=1pt,font=\scriptsize]{read \texttt{otp\_secret}} (srv);
 % client TPM -> client (unseal)
 \draw[flow] (ctpm) -- node[right,font=\scriptsize]{unseal seed} (client);
 % client -> server over ZTNA (the only path between servers)
 \draw[flow] (client) -- node[above,font=\scriptsize,align=center]{TOTP over TLS\\(via ZTNA)} (srv);
 % connector mediates: dashed boundary to relay
-\draw[ctrl] (conn.north) -- ++(0,4mm) node[above,font=\scriptsize]{Twingate relay (out)};
+\draw[ctrl] (conn.west) -- ++(-6mm,0) node[left,font=\scriptsize,align=right]{Twingate\\relay (out)};
 % provisioning registers seed in Vault (one-time)
 \draw[flow,densely dotted] (ctpm.north west) .. controls +(-10mm,10mm) and +(10mm,-14mm) ..
      node[above,font=\scriptsize,pos=0.5]{register seed (once)} (vault.east);
