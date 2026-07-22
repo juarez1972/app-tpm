@@ -492,8 +492,8 @@ B4 & Vault read without valid token/policy & T1552 Unsecured Credentials & \ttcm
 B5 & Seed-at-rest inspection (disk/image scan) & T1003 Credential Dumping & No plaintext seed on client disk or server code \\
 B6 & ZTNA token expiry / relogin (\ttcmd{AUTO\_LOCK 7d}) & T1078 Valid Accounts persistence & Expired session denied; reauthentication forced \\
 B7 & Out-of-context reuse of a leaked TOTP from outside ZTNA & T1021 Remote Services & Resource unreachable; code unusable off-network \\
-B8 & HMAC-envelope leak/replay/tamper (\ttcmd{test\_hmac\_envelope.py}) & T1040/T1550 sniff-and-replay & OTP absent from payload; reused nonce, tampered MAC, and out-of-skew $\tau$ all rejected \\
-B9 & SGX enclave attestation of the Vault initializer & Untrusted-host code substitution & DCAP quote verifies; \ttcmd{MRENCLAVE}/\ttcmd{MRSIGNER} match pinned values before any share is released \\
+B8 & HMAC-envelope leak/replay/tamper/mode (\ttcmd{test\_hmac\_envelope.py}) & T1040/T1550 sniff-and-replay & OTP absent from payload; reused nonce, tampered MAC, and out-of-skew $\tau$ rejected; raw code refused when \ttcmd{OTP\_MODE=hmac} \\
+B9 & SGX enclave attestation of the Vault initializer (\ttcmd{test\_sgx\_attestation.py}) & Untrusted-host code substitution & Manifest policy enforced (\ttcmd{debug=false}, DCAP); \ttcmd{MRENCLAVE}/\ttcmd{MRSIGNER} match pinned values before any share is released \\
 \bottomrule
 \end{tabular}
 \end{table*}
