@@ -50,7 +50,7 @@ caption = S("caption", fontSize=7.6, leading=9, alignment=TA_CENTER, fontName="S
 cell = S("cell", fontSize=7, leading=8.2, alignment=TA_LEFT, firstLineIndent=0)
 cellb = S("cellb", fontSize=7, leading=8.2, alignment=TA_LEFT, fontName="Serif-B", firstLineIndent=0)
 code = S("code", fontName="Mono", fontSize=6.6, leading=8, alignment=TA_LEFT, firstLineIndent=0,
-         backColor=colors.HexColor("#F4F4F2"), borderPadding=3)
+         backColor=colors.HexColor("#F4F4F2"), borderPadding=3, spaceBefore=6)
 
 title = S("title", fontName="Serif-B", fontSize=15, leading=18, alignment=TA_CENTER)
 authors = S("authors", fontSize=10, leading=13, alignment=TA_CENTER)
@@ -270,7 +270,7 @@ para("<b>M</b>ODERN infrastructure is provisioned by code and operated by machin
 "(T1003 OS Credential Dumping; T1552 Unsecured Credentials).")
 para("Software-only secret managers such as HashiCorp Vault mitigate sprawl but do "
 "not by themselves solve Secret Zero: Vault must itself be unsealed, and the unseal "
-"material is the new Secret Zero. Prior work by Oliveira <i>et al.</i> [12] showed "
+"material is the new Secret Zero. Prior work by Oliveira <i>et al.</i> [1] showed "
 "that a non-interactive OTP method materially raises the cost of Vault credential "
 "abuse; this paper generalizes and hardens that line of work by moving the trust "
 "anchor into silicon and enclosing the entire flow in an identity-based network "
@@ -288,25 +288,74 @@ para0("<b>Contributions.</b> This revision consolidates and extends our earlier 
 "characterization of the running prototype, plus (7) a proposed security-test suite "
 "that converts the red-team into a post-deployment regression gate.")
 
-section("II", "Threat Model")
+section("II", "Background and Related Work")
+sub("A. Zero Trust Architectures")
+para0("Zero Trust replaces implicit network trust with per-request, identity-centric "
+"authorization&mdash;pioneered by Google's BeyondCorp [2], codified by NIST SP 800-207 [3] "
+"and complemented by the implementation guidance of NIST SP 1800-35 [4]. Surveys chart "
+"the model's maturation and open challenges [5&ndash;7], enterprise migration "
+"difficulties [8], and network/IoT/6G instantiations [9,10]. Our work targets the "
+"<i>non-interactive</i> corner case, without interactive MFA or user-driven posture checks.")
+sub("B. Secret Management and the Secret Zero Problem")
+para0("Meli <i>et al.</i> found secrets leaking from over 100,000 public GitHub "
+"repositories, with thousands of new leaks daily [11]; automated detectors confirm the "
+"prevalence of plaintext passwords [12], and corpora such as SecretBench [13] enable "
+"systematic study. Practitioner studies catalog secret-management pitfalls in software "
+"artifacts and IaC [14&ndash;16], and zero-trust CI/CD frameworks address multi-tenant "
+"pipelines [17]. Software vaults [18] centralize secrets but leave Secret Zero unsolved "
+"[1]. Federated workload identity (SPIFFE/SPIRE) replaces static secrets with attested "
+"short-lived identities in CI/CD [19] and agentic AI ecosystems [20]; we complement it by "
+"binding the identity seed to a discrete hardware anchor, extending the guarantee to "
+"resource-constrained IoT endpoints.")
+sub("C. Hardware Trust Anchors and Remote Attestation")
+para0("TPM roots of trust are standardized by the TCG [21] and applied to IoT trust "
+"domains [22,23]. TEEs strengthen the software side: SGX enclaves [24] via the Gramine "
+"LibOS [25], and TDX confidential VMs [26] served by Gramine-TDX [27], with benchmarked "
+"performance envelopes [28]. Attestation is standardized by IETF RATS [29] and realized "
+"by universal attestation [30], TEE attestation mechanisms [31], ephemeral vTPMs [32], "
+"and continuous attestation with Keylime [33]; recent work covers attested Kubernetes "
+"workers [34], 5G VNFs [35], and post-quantum IoT [36]. Integrating standards-based "
+"continuous attestation is a natural evolution (Section VIII).")
+sub("D. Attacks on Trust Anchors")
+para0("TPM-FAIL recovered ECDSA keys from certified TPMs via remote timing side "
+"channels [37]; cold-boot attacks recover keys from residual DRAM [38]; Foreshadow "
+"extracted SGX enclave secrets [39]. Section III scopes these vectors out of the "
+"software-adversary model; Section VIII argues that our primitive choices (TPM sealing "
+"and keyed hashing, not TPM-resident ECDSA signing) reduce the exposed surface.")
+sub("E. OTP-Based Authentication and IoT Transport Security")
+para0("HOTP/TOTP [40,41], built on HMAC [42], remain the reference OTP constructions; "
+"our earlier work adapted them to non-interactive Vault authentication [1]. Large-scale "
+"analysis of real-world IoT backends found widespread insecure MQTT deployments with "
+"TLS terminated at intermediaries [43]&mdash;the exposure our HMAC envelope "
+"addresses&mdash;and recent work explores stateful MQTT authentication with LLM-based "
+"IDS [44].")
+sub("F. LLM-Driven Offensive Security")
+para0("Autonomous LLM pen-testing emerged with PentestGPT [45], early feasibility "
+"studies [46], and AutoAttacker [47]; it has matured into autonomous privilege-escalation "
+"agents [48], frameworks such as HackSynth [49] and VulnBot [50], and benchmarks "
+"including AutoPenBench [51] and CyberSecEval 2 [52]&mdash;the methodological backdrop "
+"for our regression-style, MITRE-mapped red-team.")
+
+section("III", "Threat Model")
 para0("We assume a root-level software adversary: an attacker with privileged code "
 "execution on a host who cannot physically decap or glitch the TPM silicon. The "
 "adversary's goals and MITRE ATT&amp;CK techniques are: credential extraction "
 "(T1003, T1552); network interception (T1040 Network Sniffing); replay/token reuse "
 "(T1550, T1078); privilege escalation (T1068, TA0004); and lateral movement "
-"(T1021, TA0008). Physical TPM attacks (cold-boot, bus probing, decapping) are out "
-"of scope; we rely on certified TPM 2.0 tamper-resistance [13] and note the residual "
-"risk in Section VII.")
+"(T1021, TA0008). Physical and microarchitectural attacks on the trust anchors "
+"themselves&mdash;cold-boot [38], TPM timing side channels [37], transient execution on "
+"SGX [39]&mdash;are out of scope; we rely on certified TPM 2.0 tamper-resistance [21] "
+"and note the residual risk in Section VIII.")
 story.extend(tbl("Positioning Against Closely Related Work",
     ["Approach","HW anchor","Vault/secret","ZT net"],
     [["Perimeter VPN","no","partial","no"],
      ["Vault-only (software)","no","yes","no"],
-     ["Oliveira <i>et al.</i> [12]","partial (OTP)","yes (OTP-hard.)","no"],
-     ["LLM pen-testing [1,2,8]","n/a","n/a","n/a"],
+     ["Oliveira <i>et al.</i> [1]","partial (OTP)","yes (OTP-hard.)","no"],
+     ["LLM pen-testing [45&ndash;52]","n/a","n/a","n/a"],
      ["<b>This work</b>","<b>yes TPM/SGX/TDX</b>","<b>yes (auto-unseal)</b>","<b>yes</b>"]],
     [colw*0.30,colw*0.24,colw*0.28,colw*0.18], "TABLE I"))
 
-section("III", "Architecture")
+section("IV", "Architecture")
 para("The architecture rests on the premise that software-only security is "
 "insufficient for nIA. It is organized in three enforcement layers (Fig. 1), each "
 "corresponding to a concrete module in the public repository.")
@@ -315,10 +364,11 @@ para0("Keys are generated inside the TPM with <font name=Mono size=7>fixedtpm</f
 "and <font name=Mono size=7>fixedparent</font> so they never leave the silicon, even "
 "under full OS compromise. Sealing binds material to PCR 0 and 7, so tampered "
 "firmware or a disabled Secure Boot state prevents unsealing. Higher tiers use Intel "
-"SGX (Gramine) and Intel TDX for CPU-encrypted memory, assigned automatically by IaC.")
+"SGX [24] (via the Gramine LibOS [25]) and Intel TDX [26,27] for CPU-encrypted memory, "
+"assigned automatically by IaC.")
 sub("B. Layer 2 — Software-Defined Secret Management (Vault)")
 para0("Vault is initialized (<font name=Mono size=7>sys/init</font>, five Shamir "
-"shares, threshold three [11]) on first boot; unseal shares and root token are sealed "
+"shares, threshold three [54]) on first boot; unseal shares and root token are sealed "
 "under a persistent TPM Storage Root Key. On every boot an initializer unseals the "
 "shares from the TPM and applies them via the Vault REST API "
 "(<font name=Mono size=7>sys/unseal</font>) with exponential backoff. No plaintext "
@@ -341,7 +391,7 @@ para0("Two virtual servers: <b>PPGIA96</b> (production) hosts Vault "
 "exposes no inbound ports, so the only path in is an authorized, policy-checked ZTNA "
 "session.")
 
-section("IV", "Implementation")
+section("V", "Implementation")
 para0("The prototype uses Docker Compose for orchestration, "
 "<font name=Mono size=7>tpm2-tools</font>/<font name=Mono size=7>tpm2-pytss</font> for "
 "TPM operations, and Python agents, on Ubuntu 22.04 LTS with physical "
@@ -397,7 +447,7 @@ story.extend(tbl("Hybrid Server Protection Tiers (IaC-selected)",
      ["critical","vTPM + TDX","TDX Trust Dom.","vTPM PCR"]],
     [colw*0.22,colw*0.24,colw*0.28,colw*0.26], "TABLE II"))
 
-section("V", "Proposed Security-Test Suite")
+section("VI", "Proposed Security-Test Suite")
 para0("A recurring weakness of nIA deployments is that security is validated once, by "
 "hand, and then drifts. We propose a repeatable suite run after every "
 "<font name=Mono size=7>terraform apply</font> that gates promotion to production. "
@@ -407,14 +457,15 @@ para0("A recurring weakness of nIA deployments is that security is validated onc
 "fully on-premises (<font name=Mono size=7>pentestv3.py</font>), no architectural "
 "detail leaves the environment&mdash;a prerequisite for a federal-court network.")
 
-section("VI", "Evaluation")
+section("VII", "Evaluation")
 para0("<b>Scope disclaimer.</b> Results combine software simulation "
 "(<font name=Mono size=7>swtpm</font>, Ollama), prototype measurements on a controlled "
 "testbed, and analytical estimation&mdash;indicative estimates, not confirmed "
 "production benchmarks. Directly measured values are marked <b>(m)</b>; analytically "
 "estimated values <b>(e)</b>.")
 sub("A. Automated Adversary Simulation via Local LLM Agents")
-para0("Following autonomous pen-testing frameworks [1,2,8], we drive a local LLM "
+para0("Following autonomous pen-testing frameworks and benchmarks [45&ndash;52], we "
+"drive a local LLM "
 "adversary (Llama 3.1 via Ollama) with two tools "
 "(<font name=Mono size=7>http_request</font>, "
 "<font name=Mono size=7>encode_payload</font>), a 5&ndash;10 turn limit, and n=100 "
@@ -478,33 +529,56 @@ story.extend(tbl("Secret-Retrieval and OTP Latency (software path, 20,000 iters)
      ["TPM seed provisioning (once)","12.22 ms","&mdash;","(m) createprimary+seal"]],
     [colw*0.36,colw*0.15,colw*0.15,colw*0.34], "TABLE VII"))
 
-section("VII", "Discussion")
+section("VIII", "Discussion")
 sub("A. Limitations of the LLM Red-Team")
 para0("The LLM adversary gives reproducible, MITRE-mapped regression testing, but "
 "(i) depends on prompt quality and a two-tool set; (ii) the turn limit constrains "
 "multi-step chains; (iii) 0% at n=100 carries a 95% Wilson upper bound of 3.6%, not "
-"absolute zero; (iv) it augments rather than replaces human red-teams.")
-sub("B. Two-Channel MFA for IoT")
+"absolute zero; (iv) it augments rather than replaces human red-teams. Results also "
+"reflect a single adversary model (Llama 3.1); offensive capability varies across "
+"models [49,51,52], so heterogeneous-LLM replication would strengthen external validity.")
+sub("B. Threats to Validity")
+para0("<b>Construct:</b> part of Table VIII is analytically estimated (marked (e)) from "
+"vendor documentation and TEE benchmarks [27,28]; promotion to direct SGX/TDX "
+"measurements is planned. <b>Internal:</b> the HMAC-envelope replay cache is in-memory "
+"and per-process; multi-worker deployments need a shared store (e.g., Redis), and "
+"channel binding (TLS exporter material) would exclude cross-connection replay. "
+"<b>External:</b> a single institutional testbed (PPGIA96/95) and one LLM adversary. "
+"<b>Residual hardware risk:</b> TPM-FAIL targets TPM-resident ECDSA signing [37]; this "
+"design uses the TPM only for sealing and keyed hashing, reducing&mdash;not "
+"eliminating&mdash;that surface. SGX transient-execution attacks [39] are mitigated by "
+"microcode and the TDX tier [26].")
+sub("C. Two-Channel MFA for IoT")
 para0("Devices combine a TPM-bound identity (Channel 1, non-cloneable) with an "
 "out-of-band approval (Channel 2), both within a 30 s window aligned to the RFC 6238 "
 "time-step. An attacker must defeat the TPM (physically infeasible without silicon "
-"tampering [6]) and compromise the operator's out-of-band channel.")
-sub("C. An Additional Point: Supply-Chain Integrity and Reproducibility")
+"tampering [38]) and compromise the operator's out-of-band channel.")
+sub("D. An Additional Point: Supply-Chain Integrity and Reproducibility")
 para0("Beyond runtime defenses, buildtime trustworthiness matters: the whole stack is "
 "declared as code and every image is pinned (<font name=Mono size=7>vault:1.13.3</font>, "
 "<font name=Mono size=7>twingate/connector:1</font>, "
 "<font name=Mono size=7>eclipse-mosquitto:2</font>), so the deployment is reproducible "
 "and the test suite runs against the exact provisioned artifact rather than a "
-"hand-configured snapshot. We recommend signing images and Terraform plans "
-"(Sigstore/cosign) and storing attestations next to TPM PCR quotes, so both the build "
-"and the boot of each host are independently verifiable&mdash;future work.")
-sub("D. Practical Considerations")
+"hand-configured snapshot. We recommend signing images and Terraform plans with "
+"transparency-log-backed tooling such as Sigstore/cosign [57] and storing attestations "
+"next to TPM PCR quotes, so both the build and the boot of each host are independently "
+"verifiable&mdash;future work.")
+sub("E. Toward Continuous, Standards-Based Attestation")
+para0("The design verifies platform state implicitly via PCR-bound sealing at unseal "
+"time. A natural evolution is explicit, continuous remote attestation per IETF RATS "
+"[29]: Keylime provides TPM-quote-backed runtime integrity monitoring [33], universal "
+"attestation layers unify heterogeneous TEE evidence [30,31], and ephemeral vTPMs cover "
+"confidential VMs [32]. Feeding such evidence into the ZTNA policy engine would make "
+"Layer 3 decisions attestation-gated, in line with attested Kubernetes workers [34] and "
+"attested 5G VNFs [35]; post-quantum attestation [36] and stateful, LLM-assisted MQTT "
+"authentication [44] chart the longer-term IoT roadmap.")
+sub("F. Practical Considerations")
 para0("Standard TPM 2.0 chips offer ~10 KB NVRAM, requiring careful index allocation. "
 "Intel deprecated SGX on 11th/12th-gen consumer CPUs (remains on server Xeon). "
 "Twingate needs its cloud controller and is unsuitable for fully air-gapped sites; "
 "self-hosted alternatives exist at different trade-offs.")
 
-section("VIII", "Conclusion")
+section("IX", "Conclusion")
 para0("We presented a hybrid Zero Trust architecture that mitigates OS-level credential "
 "extraction in nIA for IaC and IoT by anchoring Vault initialization in a physical TPM, "
 "sealing per-device OTP seeds in hardware, and confining every credential within an "
@@ -554,7 +628,7 @@ story.extend(tbl("Performance Overhead by Protection Tier (projected; SW-path me
      ["End-to-end nIA","~120 ms","~195 ms","~225 ms&dagger;","~205 ms&dagger;","+75&ndash;105 ms"],
      ["Auto-unseal RTO","~3 min","~300 ms","~350 ms&dagger;","~320 ms&dagger;","&minus;99.8%"]],
     [fullw*0.26,fullw*0.13,fullw*0.13,fullw*0.16,fullw*0.16,fullw*0.16], "TABLE VIII",
-    span_note="&dagger; SGX/TDX analytically estimated from published overhead [18] and Gramine benchmarks; software-path components measured directly (Table VII).",
+    span_note="&dagger; SGX/TDX analytically estimated from published overhead [28] and Gramine benchmarks; software-path components measured directly (Table VII).",
     full=True))
 
 # References (back to two columns)
@@ -562,29 +636,63 @@ story.append(NextPageTemplate('rest'))
 story.append(FrameBreak())
 story.append(Paragraph("REFERENCES", h1))
 refs = [
-"G. Deng et al., \"PentestGPT: An LLM-empowered automatic penetration testing tool,\" arXiv:2308.06782, 2024.",
-"A. Happe and J. Cito, \"Getting pwn'd by AI: Penetration testing with LLMs,\" Proc. ACM ESEC/FSE, 2023.",
-"A. Rahman, C. Parnin, L. Williams, \"Security smells in Ansible and Chef scripts,\" ACM TOSEM, 30(1), 2021.",
-"S. K. Basak et al., \"Practices for secret management in software artifacts,\" IEEE SecDev, 2022.",
-"A. Patel et al., \"Dynamic secret injection for microservices in the cloud,\" ICICT, 2025.",
-"J. A. Halderman et al., \"Lest we remember: Cold boot attacks on encryption keys,\" USENIX Security, 2008.",
-"D. M'Raihi et al., \"HOTP: An HMAC-based one-time password algorithm,\" IETF RFC 4226, 2005.",
-"J. Xu et al., \"AutoAttacker: An LLM-guided system for automatic cyber-attacks,\" arXiv:2403.01038, 2024.",
-"MITRE Corporation, \"ATT&amp;CK matrix for enterprise,\" 2024. attack.mitre.org.",
-"HashiCorp, \"Vault documentation: Auto-unseal,\" 2024.",
-"A. Shamir, \"How to share a secret,\" Commun. ACM, 22(11):612-613, 1979.",
 "J. Oliveira, A. O. Santin, E. K. Viegas, P. Horchulhack, \"A non-interactive one-time password-based method to enhance the Vault security,\" AINA 2024, LNDECT 202, Springer, 2024, pp. 201-213.",
-"Trusted Computing Group, \"TPM 2.0 Library Specification, parts 1-4,\" Rev. 1.59, 2019.",
+"R. Ward and B. Beyer, \"BeyondCorp: A new approach to enterprise security,\" ;login:, 39(6):6-11, USENIX Association, 2014.",
 "S. Rose et al., \"Zero Trust Architecture,\" NIST SP 800-207, 2020.",
-"S. Teerakanok et al., \"Migrating to zero trust architecture: reviews and challenges,\" Secur. Commun. Netw., 2021.",
+"NIST, \"Implementing a Zero Trust Architecture,\" NIST SP 1800-35, Jun. 2025.",
+"N. F. Syed et al., \"Zero Trust Architecture (ZTA): A comprehensive survey,\" IEEE Access, 10:57143-57179, 2022.",
+"Y. He et al., \"A survey on zero trust architecture: challenges and future trends,\" Wireless Commun. Mobile Comput., 2022:6476274, 2022.",
+"M. L. Gambo and A. Almulhem, \"Zero trust architecture: A systematic literature review,\" arXiv:2503.11659, 2025.",
+"S. Teerakanok, T. Uehara, A. Inomata, \"Migrating to zero trust architecture: Reviews and challenges,\" Secur. Commun. Netw., 2021:9947347, 2021.",
+"P. Dhiman et al., \"A review and comparative analysis of relevant approaches of zero trust network model,\" Sensors, 24(4):1328, 2024.",
+"N. Nahar et al., \"A survey on zero trust architecture: Applications and challenges of 6G networks,\" IEEE Access, 12, 2024.",
+"M. Meli, M. R. McNiece, B. Reaves, \"How bad can it Git? Characterizing secret leakage in public GitHub repositories,\" NDSS, 2019.",
+"R. Feng, Z. Yan, S. Peng, Y. Zhang, \"Automated detection of password leakage from public GitHub repositories,\" ICSE, 2022.",
+"S. K. Basak, L. Neil, B. Reaves, L. Williams, \"SecretBench: A dataset of software secrets,\" MSR, 2023.",
+"S. K. Basak et al., \"What are the practices for secret management in software artifacts?\" IEEE SecDev, 2022, pp. 69-76.",
+"A. Rahman, C. Parnin, L. Williams, \"Security smells in Ansible and Chef scripts: A replication study,\" ACM TOSEM, 30(1):1-31, 2021.",
+"A. Patel et al., \"Dynamic secret injection for microservices in the cloud,\" ICICT, 2025, pp. 72-79.",
+"C. Anuganti, \"Federated DevOps: A zero-trust framework for privacy-preserving CI/CD in multi-tenant cloud ecosystems,\" IJSRSET, 12(2):870-879, 2025.",
+"HashiCorp, \"Vault documentation: Auto-unseal,\" 2024.",
+"S. T. Avirneni, \"Establishing workload identity for zero trust CI/CD: From secrets to SPIFFE-based authentication,\" arXiv:2504.14760, 2025.",
+"K. Pappu, B. Bhushan, A. Mittal, \"SPIFFE-based zero-trust authentication for AI agent ecosystems,\" IEEE ICCA, 2025.",
+"Trusted Computing Group, \"TPM 2.0 Library Specification, parts 1-4,\" Rev. 1.59, 2019.",
+"M. Faisal et al., \"Establishment of trust in Internet of Things by integrating trusted platform module,\" Complexity, 2020:6612919, 2020.",
+"J. Furtak, Z. Zielinski, J. Chudzikiewicz, \"A framework for constructing a secure domain of sensor nodes,\" Sensors, 19(12):2797, 2019.",
 "V. Costan and S. Devadas, \"Intel SGX explained,\" IACR ePrint 2016/086, 2016.",
-"P.-C. Cheng et al., \"Intel TDX demystified: a top-down approach,\" arXiv:2303.15540, 2023.",
+"C.-c. Tsai, D. E. Porter, M. Vij, \"Graphene-SGX: A practical library OS for unmodified applications on SGX,\" USENIX ATC, 2017, pp. 645-658.",
+"P.-C. Cheng et al., \"Intel TDX demystified: A top-down approach,\" arXiv:2303.15540, 2023.",
+"D. Kuvaiskii et al., \"Gramine-TDX: A lightweight OS kernel for confidential VMs,\" ACM CCS, 2024, pp. 4598-4612.",
 "L. Coppolino et al., \"An experimental evaluation of TEE technology evolution (SGX, SEV, TDX),\" Computers &amp; Security, 2025.",
-"C. Anuganti, \"Federated DevOps: a zero-trust framework for privacy-preserving CI/CD,\" IJSRSET, 12(2), 2025.",
-"D. M'Raihi et al., \"TOTP: Time-based one-time password algorithm,\" IETF RFC 6238, 2011.",
+"H. Birkholz et al., \"Remote ATtestation procedureS (RATS) architecture,\" IETF RFC 9334, Jan. 2023.",
+"S. Ott et al., \"Universal remote attestation for cloud and edge platforms,\" ARES, 2023.",
+"J. Menetrey et al., \"Attestation mechanisms for trusted execution environments demystified,\" LNCS, Springer, 2022, pp. 95-113.",
+"V. Narayanan et al., \"Remote attestation of confidential VMs using ephemeral vTPMs,\" ACSAC, 2023.",
+"M. Ruffin et al., \"Towards continuous integrity attestation and its challenges in practice: A case study of Keylime,\" IEEE/IFIP DSN, 2025.",
+"J. Thijsman et al., \"Trusting the cloud-native edge: Remotely attested Kubernetes workers,\" arXiv:2405.10131, 2024.",
+"A. N. B. Emran et al., \"TPM-based continuous remote attestation and integrity verification for 5G VNFs on Kubernetes clusters,\" IEEE TPS-ISA, 2025.",
+"M. Eckel et al., \"Towards stateless post-quantum remote attestation for IoT using TPM and DICE,\" IEEE TrustCom, 2025.",
+"D. Moghimi, B. Sunar, T. Eisenbarth, N. Heninger, \"TPM-FAIL: TPM meets timing and lattice attacks,\" USENIX Security, 2020, pp. 2057-2073.",
+"J. A. Halderman et al., \"Lest we remember: Cold boot attacks on encryption keys,\" USENIX Security, 2008, pp. 45-60.",
+"J. Van Bulck et al., \"Foreshadow: Extracting the keys to the Intel SGX kingdom with transient out-of-order execution,\" USENIX Security, 2018, pp. 991-1008.",
+"D. M'Raihi et al., \"HOTP: An HMAC-based one-time password algorithm,\" IETF RFC 4226, 2005.",
+"D. M'Raihi, S. Machani, M. Pei, J. Rydell, \"TOTP: Time-based one-time password algorithm,\" IETF RFC 6238, 2011.",
 "M. Bellare, R. Canetti, H. Krawczyk, \"Keying hash functions for message authentication,\" IETF RFC 2104, 1997.",
-"E. B. Wilson, \"Probable inference, the law of succession, and statistical inference,\" JASA, 22(158):209-212, 1927.",
+"C. Tagliaro et al., \"Large-scale security analysis of real-world backend deployments speaking IoT-focused protocols,\" RAID, 2024, pp. 561-578.",
+"N. Jamil et al., \"A novel stateful authentication framework approach with LLM-based IDS for MQTT security,\" IEEE Internet of Things J., 2026.",
+"G. Deng et al., \"PentestGPT: An LLM-empowered automatic penetration testing tool,\" arXiv:2308.06782, 2024.",
+"A. Happe and J. Cito, \"Getting pwn'd by AI: Penetration testing with LLMs,\" ACM ESEC/FSE, 2023.",
+"J. Xu et al., \"AutoAttacker: An LLM-guided system to implement automatic cyber-attacks,\" arXiv:2403.01038, 2024.",
+"A. Happe, A. Kaplan, J. Cito, \"LLMs as hackers: Autonomous Linux privilege escalation attacks,\" Empirical Software Engineering, 2025.",
+"L. Muzsai, D. Imolai, A. Lukacs, \"HackSynth: LLM agent and evaluation framework for autonomous penetration testing,\" arXiv:2412.01778, 2024.",
+"H. Kong et al., \"VulnBot: Autonomous penetration testing for a multi-agent collaborative framework,\" arXiv:2501.13411, 2025.",
+"L. Gioacchini et al., \"AutoPenBench: Benchmarking generative agents for penetration testing,\" arXiv:2410.03225, 2024.",
+"M. Bhatt et al., \"CyberSecEval 2: A wide-ranging cybersecurity evaluation suite for large language models,\" arXiv:2404.13161, 2024.",
+"MITRE Corporation, \"ATT&amp;CK matrix for enterprise,\" 2024. attack.mitre.org.",
+"A. Shamir, \"How to share a secret,\" Commun. ACM, 22(11):612-613, 1979.",
 "Twingate, \"Deploy a connector via Docker,\" 2024.",
+"E. B. Wilson, \"Probable inference, the law of succession, and statistical inference,\" JASA, 22(158):209-212, 1927.",
+"Z. Newman, J. S. Meyers, S. Torres-Arias, \"Sigstore: Software signing for everybody,\" ACM CCS, 2022, pp. 2353-2367.",
 ]
 refstyle = S("ref", fontSize=7, leading=8.4, leftIndent=12, firstLineIndent=-12)
 for i,r in enumerate(refs,1):
