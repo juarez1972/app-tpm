@@ -256,6 +256,42 @@ For the **web UI**, open `http://<host>:8201/ui`, choose the **Token** method, a
 - It reads the blobs from `TPM_DATA_DIR` (default `./tpm-data`). Override with `TPM_DATA_DIR=/path/to/tpm-data` if the volume lives elsewhere.
 - **Security:** avoid piping the token into files or command arguments that land in logs/history. Prefer `--quiet` + a shell variable, as shown above. As a root token, rotate/revoke it after provisioning least-privilege tokens for day-to-day use.
 
+### 5.5 Revoking the initial root token (least-privilege hardening)
+
+The root token has unlimited power and should **not** be used for day-to-day operations. Once the stack is up, provision a least-privilege token and revoke the root. The helper [`scripts/revoke_root_token.sh`](scripts/revoke_root_token.sh) does this **safely and in order**:
+
+1. Recovers the root token from the TPM (via `get_root_token.sh`).
+2. Ensures the KV v2 engine is mounted at `secret/`.
+3. Writes the app ACL policy `app-policy` from [`scripts/setup_vault_policies.hcl`](scripts/setup_vault_policies.hcl).
+4. Creates a **child token** bound to that policy (renewable, TTL `APP_TOKEN_TTL`, default `768h`).
+5. **Validates** the new token (lookup-self + write/read under `secret/data/tpm-verified/*`).
+6. **Seals the new token into the TPM** as `app_token.enc` (no plaintext on disk).
+7. Only then **revokes the root token** (`revoke-self`) and confirms it stops working (lookup-self → HTTP 403).
+
+```bash
+cd vault-tpm
+export VAULT_ADDR="http://127.0.0.1:8201"
+
+# Rehearse everything WITHOUT revoking the root (recommended first run):
+./scripts/revoke_root_token.sh --dry-run
+
+# Do it for real (creates + validates + seals app-token, then revokes root):
+./scripts/revoke_root_token.sh
+```
+
+After revocation, use the least-privilege token for daily work. Recover it from the TPM the same way as the root, pointing at the `app_token` blob:
+
+```bash
+export VAULT_TOKEN="$(TOKEN_BASENAME=app_token ./scripts/get_root_token.sh --quiet)"
+vault token lookup      # policies: [app-policy default]
+```
+
+**Important:**
+
+- Revocation is **irreversible**. If you later need root privileges again, use Vault's official [`vault operator generate-root`](https://developer.hashicorp.com/vault/docs/commands/operator/generate-root) flow, which requires the unseal-key quorum (still sealed in the TPM). The initial root blob (`root_token.enc`) no longer authenticates once revoked.
+- The script **aborts before revoking** if it cannot create/validate/seal the least-privilege token — so you never lose access without a working replacement.
+- Tune the policy via `APP_POLICY_FILE` / `APP_POLICY_NAME` and the token lifetime via `APP_TOKEN_TTL`. In a VM/CI (emulated TPM), set `TPM2TOOLS_TCTI="swtpm:path=..."` as usual.
+
 ---
 
 ## 6. Running the Stack

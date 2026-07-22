@@ -25,22 +25,28 @@
 #   # login interativo no Vault CLI sem expor o token no comando:
 #   ./scripts/get_root_token.sh --quiet | vault login -
 #
+# Também recupera OUTROS tokens selados no mesmo esquema (ex.: o token de menor
+# privilégio criado por revoke_root_token.sh) via TOKEN_BASENAME:
+#   TOKEN_BASENAME=app_token ./scripts/get_root_token.sh --quiet
+#
 # Variáveis de ambiente (mesmas do initializer):
 #   TPM_DATA_DIR    (default: ./tpm-data)
 #   TPM2TOOLS_TCTI  (default: device:/dev/tpmrm0 ; use swtpm:path=... em VM/CI)
 #   TPM_SRK_HANDLE  (default: 0x81010001)
+#   TOKEN_BASENAME  (default: root_token ; base dos blobs .enc.pub/.enc.priv)
 
 set -euo pipefail
 
 TPM_DATA_DIR="${TPM_DATA_DIR:-./tpm-data}"
 TCTI="${TPM2TOOLS_TCTI:-device:/dev/tpmrm0}"
 SRK_HANDLE="${TPM_SRK_HANDLE:-0x81010001}"
+TOKEN_BASENAME="${TOKEN_BASENAME:-root_token}"
 
 QUIET=0
 [ "${1:-}" = "--quiet" ] && QUIET=1
 
-PUB="${TPM_DATA_DIR}/root_token.enc.pub"
-PRIV="${TPM_DATA_DIR}/root_token.enc.priv"
+PUB="${TPM_DATA_DIR}/${TOKEN_BASENAME}.enc.pub"
+PRIV="${TPM_DATA_DIR}/${TOKEN_BASENAME}.enc.priv"
 
 err() { echo "get_root_token: $*" >&2; }
 
@@ -48,7 +54,7 @@ command -v tpm2_load    >/dev/null 2>&1 || { err "tpm2-tools ausente"; exit 3; }
 command -v tpm2_unseal  >/dev/null 2>&1 || { err "tpm2-tools ausente"; exit 3; }
 
 if [ ! -f "${PUB}" ] || [ ! -f "${PRIV}" ]; then
-  err "blobs do root token não encontrados em ${TPM_DATA_DIR} (root_token.enc.pub/.priv)."
+  err "blobs do token não encontrados em ${TPM_DATA_DIR} (${TOKEN_BASENAME}.enc.pub/.priv)."
   err "o Vault já foi inicializado por vault_initializer.py neste host/TPM?"
   exit 4
 fi
@@ -69,7 +75,7 @@ fi
 
 # Imprime o token diretamente do TPM (stdout). Nada é gravado em disco.
 if [ "${QUIET}" -eq 0 ]; then
-  printf 'ROOT TOKEN: '
+  printf 'TOKEN (%s): ' "${TOKEN_BASENAME}"
 fi
 tpm2_unseal -c "${CTX}" --tcti "${TCTI}"
 if [ "${QUIET}" -eq 0 ]; then
