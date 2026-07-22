@@ -119,6 +119,93 @@ Em seguida, crie um **Group** e uma **Policy** liberando esses Resources apenas
 para os usuários/dispositivos autorizados (por exemplo, o PPGIA95 e as estações
 de administração). Nenhum outro tráfego alcança o PPGIA96.
 
+### 4.1 Exemplo: Resource do servidor IoT + Policy liberando o PPGIA95
+
+O objetivo é: **somente o PPGIA95** (e administradores) pode alcançar o servidor
+IoT do PPGIA96; qualquer outra origem é bloqueada.
+
+#### Pela UI do Admin Console
+
+1. **Group** — crie o grupo `ppgia95-validacao` e associe a ele o usuário/serviço
+   que roda o cliente IoT no PPGIA95 (**Team → Groups → Add Group**).
+2. **Resource** — **Resources → Add Resource**:
+   - **Address:** `10.0.0.96` (IP interno do PPGIA96) ou um alias interno, ex.
+     `iot.ppgia96.local`.
+   - **Connector:** o Connector deste diretório (`twingate-connector-ppgia96`).
+   - **Restrict ports (recomendado):** `TCP 5000` (REST) e/ou `TCP 8883` (MQTT).
+     Assim, mesmo autorizado, o PPGIA95 só alcança as portas do serviço IoT — o
+     Vault (`:8200`) fica em um Resource separado, liberado apenas para admins.
+3. **Policy / Access** — na aba **Access** do Resource, adicione o grupo
+   `ppgia95-validacao`. Defina a **Security Policy** exigindo MFA e, se desejar,
+   verificação de postura do dispositivo. Sem pertencer a esse grupo, nenhum
+   host enxerga o Resource.
+
+#### Declarativo via Terraform (coerente com a abordagem IaC do projeto)
+
+```hcl
+terraform {
+  required_providers {
+    twingate = {
+      source  = "Twingate/twingate"
+      version = "~> 3.0"
+    }
+  }
+}
+
+provider "twingate" {
+  network    = "seu-networkname"          # TWINGATE_NETWORK
+  api_token  = var.twingate_api_token     # token de API do Admin Console
+}
+
+# Connector on-premises que roda no PPGIA96 (este diretório).
+data "twingate_remote_network" "ppgia96" {
+  name = "ppgia96"
+}
+
+# Grupo que representa o servidor de validação PPGIA95.
+resource "twingate_group" "ppgia95_validacao" {
+  name = "ppgia95-validacao"
+}
+
+# Resource: servidor IoT do PPGIA96, restrito às portas REST/MQTT.
+resource "twingate_resource" "iot_ppgia96" {
+  name              = "IoT Server (PPGIA96)"
+  address           = "10.0.0.96"                       # IP interno do PPGIA96
+  remote_network_id = data.twingate_remote_network.ppgia96.id
+
+  protocols = {
+    allow_icmp = true
+    tcp = {
+      policy = "RESTRICTED"
+      ports  = ["5000", "8883"]                          # REST e MQTT
+    }
+    udp = { policy = "DENY_ALL" }
+  }
+
+  # Policy de acesso: somente o grupo do PPGIA95, com MFA obrigatório.
+  access_group {
+    group_id           = twingate_group.ppgia95_validacao.id
+    security_policy_id = data.twingate_security_policy.mfa.id
+
+    # Reautorização periódica (relogin) do acesso do PPGIA95.
+    access_policy {
+      mode     = "AUTO_LOCK"
+      duration = "7d"
+    }
+  }
+}
+
+# Security Policy pré-definida no Admin Console que exige MFA.
+data "twingate_security_policy" "mfa" {
+  name = "Require MFA"
+}
+```
+
+> **Princípio do menor privilégio:** publique o **Vault** (`:8200`) como um
+> Resource **separado**, associado apenas a um grupo de administradores — nunca
+> ao `ppgia95-validacao`. O PPGIA95 precisa falar apenas com o servidor IoT; o
+> acesso direto ao Vault não deve ser concedido ao ambiente de testes.
+
 ---
 
 ## 5. Como isto se encaixa no fluxo IoT-TPM
