@@ -331,7 +331,7 @@ After Vault is operational, populate an example secret using the provided helper
 ./setup_secret.sh
 ```
 
-`setup_secret.sh` authenticates to Vault, creates the target KV path, and writes a sample key-value pair — useful for verifying that the unseal flow completed successfully and that write access is functioning.
+`setup_secret.sh` authenticates to Vault **using the token recovered from the TPM** (no plaintext token is ever written to disk), ensures the KV v2 engine is mounted, then writes and reads back a sample key-value pair under `secret/data/tpm-verified/*` — useful for verifying that the unseal flow completed successfully and that write access is functioning. If the least-privilege `app_token` has already been sealed (see [5.5](#55-revoking-the-initial-root-token-least-privilege-hardening)), it is preferred automatically; otherwise the root token is used. You can also pass a token explicitly via `VAULT_TOKEN=... ./setup_secret.sh`.
 
 ### 6.6 Tear down the stack
 
