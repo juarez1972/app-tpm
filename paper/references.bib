@@ -1,0 +1,236 @@
+% =====================================================================
+% references.bib
+% Bibliography for:
+%   "A Hybrid Zero Trust Architecture for Non-Interactive Authentication:
+%    Integrating Hardware Trust Anchors with Software-Defined Secret
+%    Management in Infrastructure as Code"
+%   PPGIa / PUCPR, Brazil
+%
+% Usage (IEEEtran + BibTeX): in hybrid_zt_nia.tex replace the embedded
+%   \begin{thebibliography}...\end{thebibliography} block with:
+%       \bibliographystyle{IEEEtran}
+%       \bibliography{references}
+%   then compile: pdflatex -> bibtex -> pdflatex -> pdflatex
+% =====================================================================
+
+% ---------- LLM-assisted / autonomous penetration testing ----------
+@misc{pentestgpt,
+  author       = {Deng, Gelei and others},
+  title        = {{PentestGPT}: An {LLM}-empowered Automatic Penetration Testing Tool},
+  howpublished = {arXiv:2308.06782},
+  year         = {2024},
+  note         = {[Online]},
+  url          = {https://arxiv.org/abs/2308.06782}
+}
+
+@inproceedings{happe2023,
+  author    = {Happe, Andreas and Cito, J{\"u}rgen},
+  title      = {Getting Pwn'd by {AI}: Penetration Testing with Large Language Models},
+  booktitle = {Proceedings of the ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering (ESEC/FSE)},
+  year      = {2023},
+  publisher = {ACM},
+  doi       = {10.1145/3611643.3613083},
+  url       = {https://doi.org/10.1145/3611643.3613083}
+}
+
+@misc{autoattacker,
+  author       = {Xu, Jiacen and others},
+  title        = {{AutoAttacker}: A Large Language Model Guided System to Implement Automatic Cyber-Attacks},
+  howpublished = {arXiv:2403.01038},
+  year         = {2024},
+  note         = {[Online]},
+  url          = {https://arxiv.org/abs/2403.01038}
+}
+
+% ---------- IaC security smells & secret management ----------
+@article{rahman2021,
+  author  = {Rahman, Akond and Parnin, Chris and Williams, Laurie},
+  title   = {Security Smells in {Ansible} and {Chef} Scripts: A Replication Study},
+  journal = {ACM Transactions on Software Engineering and Methodology (TOSEM)},
+  volume  = {30},
+  number  = {1},
+  pages   = {1--31},
+  year    = {2021}
+}
+
+@inproceedings{basak2022,
+  author    = {Basak, Setu Kumar and Neil, Lorenzo and Reaves, Bradley and Williams, Laurie},
+  title     = {What Are the Practices for Secret Management in Software Artifacts?},
+  booktitle = {Proceedings of the IEEE Secure Development Conference (SecDev)},
+  year      = {2022},
+  pages     = {69--76},
+  publisher = {IEEE}
+}
+
+@inproceedings{patel2025,
+  author    = {Patel, Ankit and others},
+  title     = {Dynamic Secret Injection for Microservices in the Cloud},
+  booktitle = {Proceedings of the International Conference on Inventive Computation Technologies (ICICT)},
+  year      = {2025},
+  pages     = {72--79}
+}
+
+% ---------- Hardware attacks / trust anchors ----------
+@inproceedings{halderman2008,
+  author    = {Halderman, J. Alex and others},
+  title     = {Lest We Remember: Cold Boot Attacks on Encryption Keys},
+  booktitle = {Proceedings of the USENIX Security Symposium},
+  year      = {2008},
+  pages     = {45--60},
+  publisher = {USENIX Association}
+}
+
+@misc{tcg2019,
+  author       = {{Trusted Computing Group}},
+  title        = {{TPM 2.0} Library Specification, Parts 1--4},
+  howpublished = {Rev.~1.59},
+  year         = {2019},
+  note         = {[Online]},
+  url          = {https://trustedcomputinggroup.org/resource/tpm-library-specification/}
+}
+
+% ---------- One-time passwords / HMAC (IETF) ----------
+@misc{rfc4226,
+  author       = {M'Raihi, David and others},
+  title        = {{HOTP}: An {HMAC}-Based One-Time Password Algorithm},
+  howpublished = {IETF RFC 4226},
+  year         = {2005},
+  note         = {[Online]},
+  url          = {https://www.rfc-editor.org/rfc/rfc4226}
+}
+
+@misc{rfc6238,
+  author       = {M'Raihi, David and Machani, Salah and Pei, Mingliang and Rydell, Johan},
+  title        = {{TOTP}: Time-Based One-Time Password Algorithm},
+  howpublished = {IETF RFC 6238},
+  year         = {2011},
+  note         = {[Online]},
+  url          = {https://www.rfc-editor.org/rfc/rfc6238}
+}
+
+@misc{rfc2104,
+  author       = {Bellare, Mihir and Canetti, Ran and Krawczyk, Hugo},
+  title        = {Keying Hash Functions for Message Authentication},
+  howpublished = {IETF RFC 2104},
+  year         = {1997},
+  note         = {[Online]},
+  url          = {https://www.rfc-editor.org/rfc/rfc2104}
+}
+
+% ---------- MITRE ATT&CK / Vault docs ----------
+@misc{mitre2024,
+  author       = {{MITRE Corporation}},
+  title        = {{ATT\&CK} Matrix for Enterprise},
+  year         = {2024},
+  note         = {[Online]},
+  url          = {https://attack.mitre.org/}
+}
+
+@misc{hashivault2024,
+  author       = {{HashiCorp}},
+  title        = {Vault Documentation: Auto-Unseal},
+  year         = {2024},
+  note         = {[Online]},
+  url          = {https://developer.hashicorp.com/vault/docs/concepts/seal}
+}
+
+% ---------- Secret sharing ----------
+@article{shamir1979,
+  author  = {Shamir, Adi},
+  title   = {How to Share a Secret},
+  journal = {Communications of the ACM},
+  volume  = {22},
+  number  = {11},
+  pages   = {612--613},
+  year    = {1979}
+}
+
+% ---------- Prior art (essential): Oliveira et al. ----------
+@inproceedings{oliveira2024,
+  author    = {Oliveira, Juarez and Santin, Altair O. and Viegas, Eduardo K. and Horchulhack, Pedro},
+  title     = {A Non-Interactive One-Time Password-Based Method to Enhance the {Vault} Security},
+  booktitle = {Advanced Information Networking and Applications (AINA 2024)},
+  series    = {Lecture Notes in Networks and Systems (LNDECT)},
+  volume    = {202},
+  publisher = {Springer},
+  year      = {2024},
+  pages     = {201--213}
+}
+
+% ---------- Zero Trust architecture ----------
+@techreport{nist800207,
+  author      = {Rose, Scott and Borchert, Oliver and Mitchell, Stu and Connelly, Sean},
+  title       = {Zero Trust Architecture},
+  institution = {National Institute of Standards and Technology},
+  number      = {NIST SP 800-207},
+  year        = {2020},
+  doi         = {10.6028/NIST.SP.800-207},
+  url         = {https://doi.org/10.6028/NIST.SP.800-207}
+}
+
+@article{teerakanok2021,
+  author  = {Teerakanok, Songpon and Uehara, Tetsutaro and Inomata, Atsuo},
+  title   = {Migrating to Zero Trust Architecture: Reviews and Challenges},
+  journal = {Security and Communication Networks},
+  volume  = {2021},
+  pages   = {9947347},
+  year    = {2021}
+}
+
+@article{anuganti2025,
+  author  = {Anuganti, Chandra},
+  title   = {Federated {DevOps}: A Zero-Trust Framework for Privacy-Preserving {CI/CD} in Multi-Tenant Cloud Ecosystems},
+  journal = {International Journal of Scientific Research in Science, Engineering and Technology (IJSRSET)},
+  volume  = {12},
+  number  = {2},
+  pages   = {870--879},
+  year    = {2025}
+}
+
+% ---------- Confidential computing (SGX / TDX / TEE) ----------
+@misc{costan2016,
+  author       = {Costan, Victor and Devadas, Srinivas},
+  title        = {{Intel SGX} Explained},
+  howpublished = {IACR Cryptology ePrint Archive 2016/086},
+  year         = {2016},
+  note         = {[Online]},
+  url          = {https://eprint.iacr.org/2016/086}
+}
+
+@misc{cheng2023,
+  author       = {Cheng, Pau-Chen and others},
+  title        = {{Intel TDX} Demystified: A Top-Down Approach},
+  howpublished = {arXiv:2303.15540},
+  year         = {2023},
+  note         = {[Online]},
+  url          = {https://arxiv.org/abs/2303.15540}
+}
+
+@article{coppolino2025,
+  author  = {Coppolino, Luigi and others},
+  title   = {An Experimental Evaluation of {TEE} Technology Evolution: Benchmarking Transparent Approaches Based on {SGX}, {SEV}, and {TDX}},
+  journal = {Computers \& Security},
+  year    = {2025},
+  doi     = {10.1016/j.cose.2025.104457},
+  url     = {https://doi.org/10.1016/j.cose.2025.104457}
+}
+
+% ---------- Statistics ----------
+@article{wilson1927,
+  author  = {Wilson, Edwin B.},
+  title   = {Probable Inference, the Law of Succession, and Statistical Inference},
+  journal = {Journal of the American Statistical Association},
+  volume  = {22},
+  number  = {158},
+  pages   = {209--212},
+  year    = {1927}
+}
+
+% ---------- ZTNA connector deployment ----------
+@misc{twingate2024,
+  author       = {{Twingate}},
+  title        = {Deploy a Connector via {Docker}},
+  year         = {2024},
+  note         = {[Online]},
+  url          = {https://www.twingate.com/docs/docker}
+}

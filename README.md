@@ -29,12 +29,13 @@ This repository contains the reference implementation of the hybrid architecture
    - [7.1 Vault + TPM Auto-Unseal (vault-tpm/)](#71-vault--tpm-auto-unseal-vault-tpm)
    - [7.2 IoT Agent with TPM + TOTP (iot-tpm/)](#72-iot-agent-with-tpm--totp-iot-tpm)
    - [7.3 ZTNA with Twingate Connector (ztna/)](#73-ztna-with-twingate-connector-ztna)
-   - [7.4 Adversarial Simulation with LLM (pentest/)](#74-adversarial-simulation-with-llm-pentest)
+   - [7.4 Security & Performance Testing (pentest/)](#74-security--performance-testing-pentest)
 8. [Logical Architecture of the nIA Flow](#8-logical-architecture-of-the-nia-flow)
 9. [Experimental Results](#9-experimental-results)
 10. [Roadmap](#10-roadmap)
-11. [License](#11-license)
-12. [Authors](#12-authors)
+11. [References](#11-references)
+12. [License](#12-license)
+13. [Authors](#13-authors)
 
 ---
 
@@ -145,12 +146,29 @@ app-tpm/
 │   ├── .env.example         # TWINGATE_NETWORK / ACCESS / REFRESH tokens
 │   └── README.md            # deploy + two-server topology (PPGIA96/PPGIA95)
 │
-├── pentest/            # Adversarial simulation with LLM (Article Section VI.A)
-│   ├── pentest.py      # Basic orchestrator (Nmap + OpenVAS)
-│   ├── pentestv2.py    # Version with Google Gemini API
-│   └── pentestv3.py    # Full version: local Cyber-Llama (Ollama)
+├── pentest/            # Security & performance testing (Article Sections V, VI)
+│   ├── README.md            # how to run both test families
+│   └── scripts/
+│       ├── security/         # adversarial red-team (Nmap/OpenVAS/ZAP/SQLMap/Hydra + LLM)
+│       │   ├── pentest.py        # orchestrator — Google Gemini (cloud), v1
+│       │   ├── pentestv2.py      # orchestrator — Google Gemini (cloud), v2
+│       │   ├── pentestv3.py      # orchestrator — Cyber-Llama/Ollama (local) + OpenVAS GMP
+│       │   ├── start_scan_openvas.py     # trigger an OpenVAS/GVM scan (GMP over TLS)
+│       │   ├── testa_conexao_openvas.py  # GVM connection/auth smoke-test
+│       │   ├── teste_gemini.py           # Gemini connectivity smoke-test
+│       │   ├── users.txt / passwords.txt # Hydra brute-force dictionaries
+│       └── performance/      # benchmarks & end-to-end latency tests
+│           ├── bench_totp.py             # TOTP gen/verify + cached secret read (N=20k)
+│           ├── rest_logic_test.py        # E2E REST with swtpm + Vault dev
+│           ├── rest_nofvault_test.py     # E2E REST without Vault (TPM fallback)
+│           ├── mqtt_nofvault_test.py     # E2E MQTT without broker/Vault
+│           └── measurements_summary.md   # consolidated sandbox metrics
 │
-└── web-app/            # Integrated demonstration application
+└── paper/             # Journal article (IEEEtran) + references + preview
+    ├── hybrid_zt_nia.tex          # authoritative IEEEtran source
+    ├── references.bib             # BibTeX bibliography (23 entries)
+    ├── hybrid_zt_nia_preview.pdf  # ReportLab visual preview
+    └── build_preview.py           # preview generator
 ```
 
 ## 4. Technologies Used
@@ -526,16 +544,25 @@ docker compose logs -f twingate-connector   # expect "Connected"
 > deploy procedure, the two-server topology, and how to publish the Vault and
 > IoT server as Twingate Resources.
 
-### 7.4 Adversarial Simulation with LLM (pentest/)
+### 7.4 Security & Performance Testing (pentest/)
 
-Autonomous red-team pipeline described in Section VI.A of the article, using local Llama 3.x (via Ollama) or Google Gemini.
+The `pentest/` module groups **all test scripts** used to evaluate the
+architecture along two axes. Scripts live under `pentest/scripts/`, split into
+`security/` and `performance/`. See [`pentest/README.md`](./pentest/README.md)
+for the full instructions.
+
+#### Security tests — `scripts/security/` (Article Section VI.A)
+
+Autonomous red-team pipeline using local Llama 3.x (via Ollama) or Google
+Gemini, integrating Nmap, OpenVAS/GVM, ZAPProxy, SQLMap and Hydra, with findings
+mapped to MITRE ATT&CK.
 
 ```bash
-cd pentest
-pip install openai gvm-tools python-dotenv requests
+cd pentest/scripts/security
+pip install openai google-genai gvm-tools python-dotenv requests
 
-# Set environment variables
-cat > .env << 'EOF'
+# Configure credentials (config.env in this folder)
+cat > config.env << 'EOF'
 OPENVAS_IP=192.168.x.x
 OPENVAS_USER=admin
 OPENVAS_PASS=your_strong_password
@@ -543,14 +570,16 @@ OPENVAS_PASS=your_strong_password
 EOF
 ```
 
-| Version | Description | LLM Model |
+| Script | Description | LLM Model |
 | --- | --- | --- |
-| `pentest.py` | Basic: Nmap + OpenVAS | — |
-| `pentestv2.py` | Cloud AI analysis | Google Gemini 2.0 Flash |
-| `pentestv3.py` | Full on-premises (production) | Cyber-Llama / Llama 3.x (Ollama) |
+| `pentest.py` | Orchestrator (cloud), v1 | Google Gemini 2.0 Flash |
+| `pentestv2.py` | Orchestrator (cloud), v2 — flow checks | Google Gemini 2.0 Flash |
+| `pentestv3.py` | Full on-premises + OpenVAS GMP | Cyber-Llama / Llama 3.x (Ollama) |
+| `start_scan_openvas.py` | Trigger a single OpenVAS/GVM scan | — |
+| `testa_conexao_openvas.py` / `teste_gemini.py` | Connectivity smoke-tests | — |
 
 ```bash
-# Install Ollama and model
+# Install Ollama and model (for the local, on-premises mode)
 curl -fsSL https://ollama.com/install.sh | sh
 ollama run llama3
 
@@ -558,7 +587,27 @@ ollama run llama3
 python pentestv3.py
 ```
 
-> **Legal notice:** This software is intended exclusively for **authorized security audits** and **academic research**. Use against targets without explicit permission is illegal. The authors accept no responsibility for misuse.
+#### Performance tests — `scripts/performance/`
+
+Micro-benchmarks and end-to-end tests that measure TOTP generation/verification,
+cached/Vault secret reads, TPM health-check, provisioning and hot-path latency.
+Results feed the evaluation tables in the article and are consolidated in
+[`pentest/scripts/performance/measurements_summary.md`](./pentest/scripts/performance/measurements_summary.md).
+
+```bash
+cd pentest/scripts/performance
+pip install pyotp hvac
+
+python3 bench_totp.py          # software-path micro-benchmark (no TPM/Vault needed)
+python3 rest_nofvault_test.py  # E2E REST exercising the TPM (needs swtpm + tpm2-tools)
+python3 mqtt_nofvault_test.py  # E2E MQTT via the real server handler
+python3 rest_logic_test.py     # full E2E with a Vault dev server (needs the 'vault' binary)
+```
+
+> **Legal notice:** The security scripts are intended exclusively for
+> **authorized security audits** and **academic research**. Use against targets
+> without explicit permission is illegal. The authors accept no responsibility
+> for misuse.
 
 ## 8. Logical Architecture of the nIA Flow
 
@@ -634,11 +683,41 @@ Full evaluation details are available in Section VI of the article.
 * [ ] **TDX Cross-Cloud Attestation:** Standardize vTPM attestation across AWS NitroTPM, Azure vTPM, and GCP vTPM.
 * [ ] **Full Terraform integration:** IaC module with `standard | high | critical` labels for automatic protection-tier selection.
 
-## 11. License
+## 11. References
+
+The full bibliography of the reference article is maintained as a BibTeX file at
+[`paper/references.bib`](./paper/references.bib) (23 entries). The authoritative
+article source is [`paper/hybrid_zt_nia.tex`](./paper/hybrid_zt_nia.tex); a
+rendered preview is available at
+[`paper/hybrid_zt_nia_preview.pdf`](./paper/hybrid_zt_nia_preview.pdf).
+
+To compile the article with the external bibliography (IEEEtran + BibTeX),
+replace the embedded `thebibliography` block in the `.tex` with:
+
+```latex
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+```
+
+then run: `pdflatex → bibtex → pdflatex → pdflatex`.
+
+**Selected key references:**
+
+- J. Oliveira, A. O. Santin, E. K. Viegas, and P. Horchulhack, "A non-interactive one-time password-based method to enhance the Vault security," in *AINA 2024*, LNDECT vol. 202, Springer, 2024, pp. 201–213. `oliveira2024`
+- S. Rose, O. Borchert, S. Mitchell, and S. Connelly, "Zero trust architecture," NIST SP 800-207, 2020. [DOI](https://doi.org/10.6028/NIST.SP.800-207) `nist800207`
+- Trusted Computing Group, "TPM 2.0 library specification, parts 1–4," Rev. 1.59, 2019. `tcg2019`
+- D. M'Raihi et al., "TOTP: Time-based one-time password algorithm," IETF RFC 6238, 2011. `rfc6238`
+- L. Coppolino et al., "An experimental evaluation of TEE technology evolution: SGX, SEV, and TDX," *Computers & Security*, 2025. [DOI](https://doi.org/10.1016/j.cose.2025.104457) `coppolino2025`
+
+See `paper/references.bib` for the complete list (HOTP/RFC 4226, MITRE ATT&CK,
+HashiCorp Vault auto-unseal, Shamir secret sharing, Intel SGX/TDX, ZTNA, and the
+LLM red-teaming literature).
+
+## 12. License
 
 This project is licensed under the [MIT License](./LICENSE).
 
-## 12. Authors
+## 13. Authors
 
 Developed by researchers from the Graduate Program in Computer Science (PPGIa) — PUCPR, Brazil.
 
