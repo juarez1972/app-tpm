@@ -11,11 +11,13 @@ on:
     paths:
       - "vault-tpm/vault-init/**"
       - "vault-tpm/ci/**"
+      - "vault-tpm/scripts/**"
       - ".github/workflows/ci-seal-unseal.yml"
   pull_request:
     paths:
       - "vault-tpm/vault-init/**"
       - "vault-tpm/ci/**"
+      - "vault-tpm/scripts/**"
       - ".github/workflows/ci-seal-unseal.yml"
   workflow_dispatch: {}
 
@@ -60,8 +62,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r vault-tpm/vault-init/requirements.txt
 
+      - name: Rodar teste de integração TPM (swtpm)
+        working-directory: vault-tpm
+        run: |
+          chmod +x ci/test_tpm_integration_swtpm.sh
+          ./ci/test_tpm_integration_swtpm.sh
+
       - name: Rodar teste de seal/unseal
         working-directory: vault-tpm
         run: |
-          chmod +x ci/test_seal_unseal.sh
+          chmod +x ci/test_seal_unseal.sh scripts/get_root_token.sh
           ./ci/test_seal_unseal.sh

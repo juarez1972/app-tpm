@@ -255,8 +255,23 @@ main() {
   assert_unsealed
   ok "Vault DESTRAVADO usando apenas as chaves recuperadas do TPM (SRK persistente OK)."
 
+  step "Recuperando o ROOT TOKEN do TPM e autenticando no Vault"
+  # Usa o mesmo utilitário de produção (scripts/get_root_token.sh), que faz
+  # tpm2_load + tpm2_unseal sem gravar nada em disco.
+  ROOT_TOKEN="$(TPM_DATA_DIR="${TPM_DATA_DIR}" bash "${PROJECT_DIR}/scripts/get_root_token.sh" --quiet)"
+  [ -n "${ROOT_TOKEN}" ] || { fail "não consegui recuperar o root token do TPM"; exit 9; }
+  ok "root token recuperado do TPM (comprimento=${#ROOT_TOKEN})."
+
+  # Prova que o token realmente autentica: consulta token/lookup-self via API.
+  http_code="$(curl -s -o /tmp/lookup.json -w '%{http_code}' \
+    -H "X-Vault-Token: ${ROOT_TOKEN}" "${VAULT_ADDR}/v1/auth/token/lookup-self")"
+  [ "${http_code}" = "200" ] || { fail "lookup-self falhou (HTTP ${http_code})"; cat /tmp/lookup.json; exit 9; }
+  policies="$(python3 -c "import json;print(json.load(open('/tmp/lookup.json'))['data']['policies'])" 2>/dev/null || echo '?')"
+  rm -f /tmp/lookup.json
+  ok "root token AUTENTICA no Vault (lookup-self HTTP 200, policies=${policies})."
+
   echo
-  ok "Todas as asserções passaram: init real + seal/unseal + recuperação entre boots."
+  ok "Todas as asserções passaram: init real + seal/unseal + recuperação entre boots + root token do TPM."
 }
 
 main "$@"
