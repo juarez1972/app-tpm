@@ -1,0 +1,5 @@
+# Mirrors vault-tpm/vault-init/requirements.txt so the enclave image installs
+# exactly the dependencies the initializer needs (no more, no less — every extra
+# package enlarges the trusted computing base measured into MRENCLAVE).
+requests==2.31.0
+cryptography==41.0.7

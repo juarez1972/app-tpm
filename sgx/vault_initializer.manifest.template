@@ -1,0 +1,64 @@
+# Gramine manifest template for the Vault initializer (Intel SGX enclave)
+#
+# Runs vault-tpm/vault-init/vault_initializer.py shielded inside an SGX enclave.
+# The unseal shares and root token handled by the initializer are processed in
+# CPU-encrypted enclave memory; they are never visible to the host OS, a
+# compromised kernel, or a co-resident tenant. Remote attestation (DCAP) lets a
+# verifier confirm the exact enclave measurement before releasing any material.
+#
+# Rendered by `gramine-manifest` at build time (see Dockerfile.gramine), which
+# substitutes the variables below and signs the resulting SGX manifest.
+
+libos.entrypoint = "{{ entrypoint }}"
+
+loader.entrypoint.uri = "file:{{ gramine.libos }}"
+loader.log_level = "{{ log_level }}"
+loader.argv = ["python3", "/app/vault_initializer.py"]
+
+loader.env.LD_LIBRARY_PATH = "/lib:{{ arch_libdir }}:/usr/lib:/usr/{{ arch_libdir }}"
+loader.env.PYTHONDONTWRITEBYTECODE = "1"
+# Allow only the environment the initializer needs; everything else is dropped.
+loader.env.VAULT_ADDR = { passthrough = true }
+loader.env.TPM2TOOLS_TCTI = { passthrough = true }
+loader.env.GRAMINE_ATTESTATION = { passthrough = true }
+
+fs.mounts = [
+  { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
+  { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },
+  { path = "/usr", uri = "file:/usr" },
+  { path = "/etc", uri = "file:/etc" },
+  { path = "/app", uri = "file:/app" },
+  # TPM resource-manager device passed through to the enclave.
+  { path = "/dev/tpmrm0", uri = "dev:/dev/tpmrm0" },
+]
+
+# ── SGX enclave configuration ────────────────────────────────────────────────
+sgx.debug = false
+sgx.enclave_size = "512M"
+sgx.max_threads = 8
+sgx.edmm_enable = false
+
+# Remote attestation via Intel DCAP (data-center friendly, no IAS dependency).
+sgx.remote_attestation = "dcap"
+
+# Trusted files are measured into the enclave identity at signing time; any
+# tampering changes MRENCLAVE and is detected by the verifier.
+sgx.trusted_files = [
+  "file:{{ gramine.libos }}",
+  "file:{{ gramine.runtimedir() }}/",
+  "file:{{ arch_libdir }}/",
+  "file:/usr/{{ arch_libdir }}/",
+  "file:/usr/lib/python3.9/",
+  "file:/app/vault_initializer.py",
+  "file:{{ entrypoint }}",
+]
+
+# Files that may legitimately vary at runtime (read-only, integrity-checked by
+# the host TLS + Vault API, not by MRENCLAVE).
+sgx.allowed_files = [
+  "file:/etc/hosts",
+  "file:/etc/resolv.conf",
+  "file:/etc/ssl/certs/",
+]
+
+sys.enable_sigterm_injection = true

@@ -1,0 +1,46 @@
+# Gramine-SGX image for the Vault initializer.
+#
+# Builds on the official Gramine base (which ships the SGX PAL, gramine-sgx,
+# gramine-manifest and gramine-sgx-sign), installs the initializer and its
+# dependencies, then generates and signs the SGX manifest at build time.
+#
+# The resulting image is deployed by iac/modules/sgx-node with /dev/sgx_enclave,
+# /dev/sgx_provision, and the AESM socket mounted for DCAP attestation.
+
+FROM gramineproject/gramine:stable-jammy
+
+WORKDIR /app
+
+# tpm2-tools so the initializer can read the TPM-sealed unseal shares / token.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip tpm2-tools ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Initializer dependencies (mirror vault-tpm/vault-init/requirements.txt).
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# The initializer source (copied from vault-tpm/vault-init at build context).
+COPY vault_initializer.py /app/vault_initializer.py
+
+# Manifest template + build args.
+COPY vault_initializer.manifest.template .
+
+ARG LOG_LEVEL=error
+ARG ARCH_LIBDIR=/lib/x86_64-linux-gnu
+ARG ENTRYPOINT=/usr/bin/python3
+
+# Render, sign, and verify the SGX manifest.
+RUN gramine-manifest \
+        -Dlog_level=${LOG_LEVEL} \
+        -Darch_libdir=${ARCH_LIBDIR} \
+        -Dentrypoint=${ENTRYPOINT} \
+        vault_initializer.manifest.template \
+        vault_initializer.manifest \
+ && gramine-sgx-sign \
+        --manifest vault_initializer.manifest \
+        --output vault_initializer.manifest.sgx \
+ && gramine-sgx-sigstruct-view vault_initializer.sig
+
+# Launch the initializer inside the enclave.
+ENTRYPOINT ["gramine-sgx", "vault_initializer"]
