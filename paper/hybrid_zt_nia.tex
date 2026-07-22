@@ -670,31 +670,11 @@ configuration, and scripts are available at
 CNPq partially sponsored this work under grants 307706/2025-7 and 407879/2023-4.
 
 %%---------------------------------------------------------------------
-\begin{thebibliography}{99}
+%% Bibliography (external BibTeX database: references.bib)
+%% Build sequence: pdflatex -> bibtex -> pdflatex -> pdflatex
 %%---------------------------------------------------------------------
-\bibitem{pentestgpt} G.~Deng \emph{et al.}, ``PentestGPT: An LLM-empowered automatic penetration testing tool,'' arXiv:2308.06782, 2024. [Online]. Available: \url{https://arxiv.org/abs/2308.06782}
-\bibitem{happe2023} A.~Happe and J.~Cito, ``Getting pwn'd by AI: Penetration testing with large language models,'' in \emph{Proc. ACM ESEC/FSE}, 2023. [Online]. Available: \url{https://doi.org/10.1145/3611643.3613083}
-\bibitem{rahman2021} A.~Rahman, C.~Parnin, and L.~Williams, ``Security smells in Ansible and Chef scripts: A replication study,'' \emph{ACM TOSEM}, vol.~30, no.~1, pp.~1--31, 2021.
-\bibitem{basak2022} S.~K.~Basak, L.~Neil, B.~Reaves, and L.~Williams, ``What are the practices for secret management in software artifacts?'' in \emph{Proc. IEEE SecDev}, 2022, pp.~69--76.
-\bibitem{patel2025} A.~Patel \emph{et al.}, ``Dynamic secret injection for microservices in the cloud,'' in \emph{Proc. ICICT}, 2025, pp.~72--79.
-\bibitem{halderman2008} J.~A.~Halderman \emph{et al.}, ``Lest we remember: Cold boot attacks on encryption keys,'' in \emph{Proc. USENIX Security}, 2008, pp.~45--60.
-\bibitem{rfc4226} D.~M'Raihi \emph{et al.}, ``HOTP: An HMAC-based one-time password algorithm,'' IETF RFC~4226, 2005. [Online]. Available: \url{https://www.rfc-editor.org/rfc/rfc4226}
-\bibitem{autoattacker} J.~Xu \emph{et al.}, ``AutoAttacker: A large language model guided system to implement automatic cyber-attacks,'' arXiv:2403.01038, 2024. [Online]. Available: \url{https://arxiv.org/abs/2403.01038}
-\bibitem{mitre2024} MITRE Corporation, ``ATT\&CK matrix for enterprise,'' 2024. [Online]. Available: \url{https://attack.mitre.org/}
-\bibitem{hashivault2024} HashiCorp, ``Vault documentation: Auto-unseal,'' 2024. [Online]. Available: \url{https://developer.hashicorp.com/vault/docs/concepts/seal}
-\bibitem{shamir1979} A.~Shamir, ``How to share a secret,'' \emph{Commun. ACM}, vol.~22, no.~11, pp.~612--613, 1979.
-\bibitem{oliveira2024} J.~Oliveira, A.~O.~Santin, E.~K.~Viegas, and P.~Horchulhack, ``A non-interactive one-time password-based method to enhance the Vault security,'' in \emph{Advanced Information Networking and Applications (AINA 2024)}, LNDECT, vol.~202. Springer, 2024, pp.~201--213.
-\bibitem{tcg2019} Trusted Computing Group, ``TPM 2.0 library specification, parts 1--4,'' Rev.~1.59, 2019. [Online]. Available: \url{https://trustedcomputinggroup.org/resource/tpm-library-specification/}
-\bibitem{nist800207} S.~Rose, O.~Borchert, S.~Mitchell, and S.~Connelly, ``Zero trust architecture,'' NIST SP~800-207, 2020. [Online]. Available: \url{https://doi.org/10.6028/NIST.SP.800-207}
-\bibitem{teerakanok2021} S.~Teerakanok, T.~Uehara, and A.~Inomata, ``Migrating to zero trust architecture: Reviews and challenges,'' \emph{Security and Communication Networks}, vol.~2021, art.~9947347, 2021.
-\bibitem{costan2016} V.~Costan and S.~Devadas, ``Intel SGX explained,'' IACR ePrint 2016/086, 2016. [Online]. Available: \url{https://eprint.iacr.org/2016/086}
-\bibitem{cheng2023} P.-C.~Cheng \emph{et al.}, ``Intel TDX demystified: A top-down approach,'' arXiv:2303.15540, 2023. [Online]. Available: \url{https://arxiv.org/abs/2303.15540}
-\bibitem{coppolino2025} L.~Coppolino \emph{et al.}, ``An experimental evaluation of TEE technology evolution: Benchmarking transparent approaches based on SGX, SEV, and TDX,'' \emph{Computers \& Security}, 2025. [Online]. Available: \url{https://doi.org/10.1016/j.cose.2025.104457}
-\bibitem{anuganti2025} C.~Anuganti, ``Federated DevOps: A zero-trust framework for privacy-preserving CI/CD in multi-tenant cloud ecosystems,'' \emph{IJSRSET}, vol.~12, no.~2, pp.~870--879, 2025.
-\bibitem{rfc6238} D.~M'Raihi, S.~Machani, M.~Pei, and J.~Rydell, ``TOTP: Time-based one-time password algorithm,'' IETF RFC~6238, 2011. [Online]. Available: \url{https://www.rfc-editor.org/rfc/rfc6238}
-\bibitem{rfc2104} M.~Bellare, R.~Canetti, and H.~Krawczyk, ``Keying hash functions for message authentication,'' IETF RFC~2104, 1997. [Online]. Available: \url{https://www.rfc-editor.org/rfc/rfc2104}
-\bibitem{wilson1927} E.~B.~Wilson, ``Probable inference, the law of succession, and statistical inference,'' \emph{J. Amer. Statist. Assoc.}, vol.~22, no.~158, pp.~209--212, 1927.
-\bibitem{twingate2024} Twingate, ``Deploy a connector via Docker,'' 2024. [Online]. Available: \url{https://www.twingate.com/docs/docker}
-\end{thebibliography}
+\nocite{*}   %% include all 23 entries from references.bib, even if not \cite'd
+\bibliographystyle{IEEEtran}
+\bibliography{references}
 
 \end{document}
