@@ -232,11 +232,11 @@ Each component ships an `.env.example`. Copy it to `.env` (unversioned) in the
 component directory and adjust:
 
 ```bash
-# Servidor REST
+# REST server
 cp server/server_rest_api/.env.example server/server_rest_api/.env
-# Cliente REST
+# REST client
 cp client-iot/client_rest_api/.env.example client-iot/client_rest_api/.env
-# Servidor / cliente MQTT (equivalente)
+# MQTT server / client (equivalent)
 cp server/server_mqtt/.env.example server/server_mqtt/.env
 cp client-iot/client_mqtt/.env.example client-iot/client_mqtt/.env
 ```
@@ -244,20 +244,20 @@ cp client-iot/client_mqtt/.env.example client-iot/client_mqtt/.env
 Key variables (see each `.env.example` for the full list):
 
 ```dotenv
-# Cliente (REST e MQTT)
+# Client (REST and MQTT)
 DEVICE_ID=device-001
-OTP_INTERVAL=60              # DEVE ser igual no cliente e no servidor
+OTP_INTERVAL=60              # MUST match on client and server
 TPM_DATA_DIR=/app/tpm-data
 TPM_SRK_HANDLE=0x81010001
 
-# Servidor (REST e MQTT) — fonte primária dos segredos
+# Server (REST and MQTT) — primary source of secrets
 VAULT_ADDR=http://192.168.1.100:8200
-VAULT_TOKEN=<app_token>      # policy 'app-policy' do projeto vault-tpm
+VAULT_TOKEN=<app_token>      # 'app-policy' policy from the vault-tpm project
 VAULT_DEVICE_BASE=tpm-verified/iot/devices
 
 # Endpoints
-API_URL=http://192.168.1.100:5000   # cliente REST
-MQTT_BROKER=192.168.1.100           # cliente MQTT (porta 8883)
+API_URL=http://192.168.1.100:5000   # REST client
+MQTT_BROKER=192.168.1.100           # MQTT client (port 8883)
 ```
 
 ---
@@ -605,7 +605,7 @@ SSL: CERTIFICATE_VERIFY_FAILED
 
 **Solution:** Ensure `ca.crt` is correctly referenced in the client configuration and that the server certificate was signed by the same CA. Regenerate certificates if the CA has changed (see [Section 9](#9-certificate-generation)).
 
-### REST API 401 Unauthorized (OTP inválido)
+### REST API 401 Unauthorized (invalid OTP)
 
 **Possible causes:**
 

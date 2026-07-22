@@ -1,146 +1,149 @@
-# ZTNA — Twingate Connector (Camada 3 / Network Enforcement)
+# ZTNA — Twingate Connector (Layer 3 / Network Enforcement)
 
-Este módulo implementa a **Camada 3 (imposição de rede / ZTNA)** da arquitetura
-Zero Trust híbrida do projeto `app-tpm`, usando o **Twingate** no modo
-**Connector on-premises via Docker**. O objetivo é publicar os recursos internos
-(o **Vault** do projeto `vault-tpm` e o **servidor IoT** do projeto `iot-tpm`)
-sem expor nenhuma porta de entrada, aplicando acesso por identidade em vez de VPN.
+![app-tpm](https://img.shields.io/badge/project-app--tpm-blue)
+![Twingate](https://img.shields.io/badge/Twingate-Connector-6C47FF)
+![Docker](https://img.shields.io/badge/docker-compose-blue?logo=docker)
+![Terraform](https://img.shields.io/badge/Terraform-IaC-7B42BC?logo=terraform)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-> Este diretório substitui a antiga PoC baseada em OpenZiti + Keycloak. O modelo
-> de ameaça e o papel na arquitetura continuam os mesmos (neutralizar movimento
-> lateral, T1021); apenas a tecnologia de ZTNA passou a ser o Twingate.
+> Component of the prototype described in:
+> **"A Hybrid Zero Trust Architecture for Non-Interactive Authentication"**
+> Langaro, J. S.; Santin, A. O.; Viegas, E. K.; Veiga, F. M.; Oliveira, J. — PPGIa/PUCPR, Brazil.
 
----
+This module implements **Layer 3 (network enforcement / ZTNA)** of the `app-tpm` hybrid Zero Trust architecture, using **Twingate** in **on-premises Connector via Docker** mode. The goal is to publish the internal resources (the **Vault** from the `vault-tpm` project and the **IoT server** from the `iot-tpm` project) without exposing any inbound port, enforcing identity-based access instead of a VPN.
 
-## 1. Por que Twingate (Connector on-premises)
-
-- **Sem portas de entrada:** o Connector faz apenas conexões de saída para o
-  Relay do Twingate. Nenhuma porta precisa ser aberta no firewall do PPGIA96.
-- **Acesso por identidade:** usuários/dispositivos autenticam no Twingate; o
-  Connector só encaminha tráfego para Resources autorizados por política.
-- **Complementa o HOTP/TOTP + TPM:** mesmo que uma credencial TOTP vaze, ela não
-  pode ser usada fora do contexto de rede imposto pelo ZTNA.
+> This directory replaces the former PoC based on OpenZiti + Keycloak. The threat model and the role in the architecture remain the same (neutralize lateral movement, T1021); only the ZTNA technology changed to Twingate.
 
 ---
 
-## 2. Topologia dos dois servidores virtuais
+## 1. Why Twingate (on-premises Connector)
+
+- **No inbound ports:** the Connector makes outbound-only connections to the
+  Twingate Relay. No port needs to be opened in the PPGIA96 firewall.
+- **Identity-based access:** users/devices authenticate to Twingate; the
+  Connector only forwards traffic to Resources authorized by policy.
+- **Complements TOTP + TPM:** even if a TOTP credential leaks, it cannot be used
+  outside the network context enforced by the ZTNA.
+
+---
+
+## 2. Two-server topology
 
 ```
                          Twingate Cloud (Controller + Relays)
-                                       ▲  (somente saída)
+                                       ▲  (outbound only)
                                        │
 ┌──────────────────────────────────────────────────────────┐
-│  PPGIA96  (produção)                                       │
+│  PPGIA96  (production)                                     │
 │                                                            │
 │   ┌────────────────┐   ┌───────────────┐   ┌───────────┐  │
-│   │ Vault          │   │ Servidor IoT  │   │ Twingate  │  │
+│   │ Vault          │   │ IoT Server    │   │ Twingate  │  │
 │   │ (vault-tpm)    │◄──┤ (iot-tpm)     │   │ Connector │  │
 │   │ :8200          │   │ REST :5000 /  │   │ (docker)  │  │
-│   │ sementes TOTP  │   │ MQTT :8883    │   │  ztna/    │  │
+│   │ TOTP seeds     │   │ MQTT :8883    │   │  ztna/    │  │
 │   └────────────────┘   └───────────────┘   └───────────┘  │
-│         ▲ lê semente por device_id              │         │
-│         └─────────────────────────────────────► publica   │
+│         ▲ reads seed per device_id              │         │
+│         └─────────────────────────────────────► publishes │
 │                                                 Resources  │
 └──────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────┐
-│  PPGIA95  (testes / validação)                             │
+│  PPGIA95  (testing / validation)                           │
 │                                                            │
 │   ┌──────────────────────┐   ┌──────────────────────────┐ │
-│   │ Testes de segurança  │   │ Cliente/servidor IoT      │ │
-│   │ (pentest/)           │   │ para validação (iot-tpm)  │ │
+│   │ Security tests       │   │ IoT client/server         │ │
+│   │ (pentest/)           │   │ for validation (iot-tpm)  │ │
 │   └──────────────────────┘   └──────────────────────────┘ │
-│   Acessa os recursos do PPGIA96 através do Twingate.       │
+│   Accesses the PPGIA96 resources through Twingate.        │
 └──────────────────────────────────────────────────────────┘
 ```
 
-| Servidor | Papel | Componentes |
+| Server | Role | Components |
 |---|---|---|
-| **PPGIA96** | Produção | Vault (`vault-tpm`, `:8200`), servidor IoT (`iot-tpm`, REST `:5000` / MQTT `:8883`), **Twingate Connector** (este diretório) |
-| **PPGIA95** | Testes / validação | Testes de segurança (`pentest/`) e cliente/servidor IoT para validação (`iot-tpm`), acessando os recursos do PPGIA96 via Twingate |
+| **PPGIA96** | Production | Vault (`vault-tpm`, `:8200`), IoT server (`iot-tpm`, REST `:5000` / MQTT `:8883`), **Twingate Connector** (this directory) |
+| **PPGIA95** | Testing / validation | Security tests (`pentest/`) and IoT client/server for validation (`iot-tpm`), accessing the PPGIA96 resources via Twingate |
 
 ---
 
-## 3. Deploy do Connector (PPGIA96)
+## 3. Connector deployment (PPGIA96)
 
-### 3.1 Gerar os tokens no Admin Console
+### 3.1 Generate the tokens in the Admin Console
 
-1. Acesse `https://<seu-networkname>.twingate.com` como administrador.
+1. Sign in to `https://<your-networkname>.twingate.com` as an administrator.
 2. **Network → Connectors → Deploy Connector**.
-3. Escolha **On-premises → Docker**. O Console gera um par de tokens
-   (`ACCESS_TOKEN` e `REFRESH_TOKEN`) exibido **uma única vez**.
+3. Choose **On-premises → Docker**. The Console generates a token pair
+   (`ACCESS_TOKEN` and `REFRESH_TOKEN`) shown **only once**.
 
-### 3.2 Subir o Connector
+### 3.2 Bring up the Connector
 
 ```bash
 cd app-tpm/ztna/
 cp .env.example .env
-#  edite .env: TWINGATE_NETWORK, TWINGATE_ACCESS_TOKEN, TWINGATE_REFRESH_TOKEN
+#  edit .env: TWINGATE_NETWORK, TWINGATE_ACCESS_TOKEN, TWINGATE_REFRESH_TOKEN
 docker compose up -d
 ```
 
-Verifique o status:
+Check the status:
 
 ```bash
-docker compose logs -f twingate-connector      # deve mostrar "Connected"
+docker compose logs -f twingate-connector      # should show "Connected"
 docker exec twingate-connector-ppgia96 ./connectord --version
 ```
 
-No Admin Console, o Connector aparece como **Online**.
+In the Admin Console, the Connector shows up as **Online**.
 
-> O arquivo `.env` contém segredos e **não é versionado** (veja o `.gitignore`
-> da raiz). Apenas o `.env.example` fica no repositório.
+> The `.env` file holds secrets and is **not versioned** (see the root
+> `.gitignore`). Only `.env.example` is kept in the repository.
 
-### 3.3 Detalhes do compose
+### 3.3 Compose details
 
-- **Imagem:** `twingate/connector:1` (canal estável, atualizações automáticas de
-  patch).
-- **`sysctl net.ipv4.ping_group_range=0 2147483647`:** permite ao Connector
-  medir latência (ICMP) até os Resources internos.
-- **`restart: unless-stopped` + `pull_policy: always`:** reinício resiliente e
-  imagem sempre atualizada ao recriar o container.
-- **Label do Watchtower:** habilita atualização automática caso um Watchtower
-  esteja em uso no host.
+- **Image:** `twingate/connector:1` (stable channel, automatic patch updates).
+- **`sysctl net.ipv4.ping_group_range=0 2147483647`:** lets the Connector
+  measure latency (ICMP) to the internal Resources.
+- **`restart: unless-stopped` + `pull_policy: always`:** resilient restart and
+  always up-to-date image when the container is recreated.
+- **Watchtower label:** enables automatic updates if a Watchtower instance is
+  running on the host.
 
 ---
 
-## 4. Publicar os Resources internos
+## 4. Publish the internal Resources
 
-No Admin Console (**Resources → Add Resource**), aponte para os serviços do
-PPGIA96 usando o Connector deste diretório. Sugestão de Resources:
+In the Admin Console (**Resources → Add Resource**), point to the PPGIA96
+services using the Connector from this directory. Suggested Resources:
 
-| Resource | Endereço interno (a partir do Connector) | Uso |
+| Resource | Internal address (from the Connector) | Use |
 |---|---|---|
-| Vault (vault-tpm) | `http://127.0.0.1:8200` ou IP interno do PPGIA96 | Escrita/leitura das sementes TOTP por `device_id` |
-| Servidor IoT REST | `http://127.0.0.1:5000` | `POST /login`, `POST /verify` |
-| Servidor IoT MQTT | `mqtt://127.0.0.1:8883` | Publicação/verificação de TOTP |
+| Vault (vault-tpm) | `http://127.0.0.1:8200` or the PPGIA96 internal IP | Read/write of TOTP seeds by `device_id` |
+| IoT Server REST | `http://127.0.0.1:5000` | `POST /login`, `POST /verify` |
+| IoT Server MQTT | `mqtt://127.0.0.1:8883` | TOTP publish/verify |
 
-Em seguida, crie um **Group** e uma **Policy** liberando esses Resources apenas
-para os usuários/dispositivos autorizados (por exemplo, o PPGIA95 e as estações
-de administração). Nenhum outro tráfego alcança o PPGIA96.
+Then create a **Group** and a **Policy** granting these Resources only to
+authorized users/devices (for example, PPGIA95 and the administration
+workstations). No other traffic reaches PPGIA96.
 
-### 4.1 Exemplo: Resource do servidor IoT + Policy liberando o PPGIA95
+### 4.1 Example: IoT server Resource + Policy granting PPGIA95
 
-O objetivo é: **somente o PPGIA95** (e administradores) pode alcançar o servidor
-IoT do PPGIA96; qualquer outra origem é bloqueada.
+The goal is: **only PPGIA95** (and administrators) may reach the PPGIA96 IoT
+server; any other source is blocked.
 
-#### Pela UI do Admin Console
+#### Through the Admin Console UI
 
-1. **Group** — crie o grupo `ppgia95-validacao` e associe a ele o usuário/serviço
-   que roda o cliente IoT no PPGIA95 (**Team → Groups → Add Group**).
+1. **Group** — create the `ppgia95-validation` group and associate with it the
+   user/service running the IoT client on PPGIA95 (**Team → Groups → Add Group**).
 2. **Resource** — **Resources → Add Resource**:
-   - **Address:** `10.0.0.96` (IP interno do PPGIA96) ou um alias interno, ex.
+   - **Address:** `10.0.0.96` (PPGIA96 internal IP) or an internal alias, e.g.
      `iot.ppgia96.local`.
-   - **Connector:** o Connector deste diretório (`twingate-connector-ppgia96`).
-   - **Restrict ports (recomendado):** `TCP 5000` (REST) e/ou `TCP 8883` (MQTT).
-     Assim, mesmo autorizado, o PPGIA95 só alcança as portas do serviço IoT — o
-     Vault (`:8200`) fica em um Resource separado, liberado apenas para admins.
-3. **Policy / Access** — na aba **Access** do Resource, adicione o grupo
-   `ppgia95-validacao`. Defina a **Security Policy** exigindo MFA e, se desejar,
-   verificação de postura do dispositivo. Sem pertencer a esse grupo, nenhum
-   host enxerga o Resource.
+   - **Connector:** the Connector from this directory (`twingate-connector-ppgia96`).
+   - **Restrict ports (recommended):** `TCP 5000` (REST) and/or `TCP 8883` (MQTT).
+     This way, even when authorized, PPGIA95 only reaches the IoT service ports —
+     the Vault (`:8200`) stays in a separate Resource, granted to admins only.
+3. **Policy / Access** — on the Resource's **Access** tab, add the
+   `ppgia95-validation` group. Set the **Security Policy** to require MFA and,
+   optionally, device posture checks. Without belonging to that group, no host
+   can even see the Resource.
 
-#### Declarativo via Terraform (coerente com a abordagem IaC do projeto)
+#### Declarative via Terraform (consistent with the project's IaC approach)
 
 ```hcl
 terraform {
@@ -153,41 +156,41 @@ terraform {
 }
 
 provider "twingate" {
-  network    = "seu-networkname"          # TWINGATE_NETWORK
-  api_token  = var.twingate_api_token     # token de API do Admin Console
+  network    = "your-networkname"         # TWINGATE_NETWORK
+  api_token  = var.twingate_api_token     # Admin Console API token
 }
 
-# Connector on-premises que roda no PPGIA96 (este diretório).
+# On-premises Connector running on PPGIA96 (this directory).
 data "twingate_remote_network" "ppgia96" {
   name = "ppgia96"
 }
 
-# Grupo que representa o servidor de validação PPGIA95.
-resource "twingate_group" "ppgia95_validacao" {
-  name = "ppgia95-validacao"
+# Group representing the PPGIA95 validation server.
+resource "twingate_group" "ppgia95_validation" {
+  name = "ppgia95-validation"
 }
 
-# Resource: servidor IoT do PPGIA96, restrito às portas REST/MQTT.
+# Resource: PPGIA96 IoT server, restricted to the REST/MQTT ports.
 resource "twingate_resource" "iot_ppgia96" {
   name              = "IoT Server (PPGIA96)"
-  address           = "10.0.0.96"                       # IP interno do PPGIA96
+  address           = "10.0.0.96"                       # PPGIA96 internal IP
   remote_network_id = data.twingate_remote_network.ppgia96.id
 
   protocols = {
     allow_icmp = true
     tcp = {
       policy = "RESTRICTED"
-      ports  = ["5000", "8883"]                          # REST e MQTT
+      ports  = ["5000", "8883"]                          # REST and MQTT
     }
     udp = { policy = "DENY_ALL" }
   }
 
-  # Policy de acesso: somente o grupo do PPGIA95, com MFA obrigatório.
+  # Access policy: only the PPGIA95 group, with mandatory MFA.
   access_group {
-    group_id           = twingate_group.ppgia95_validacao.id
+    group_id           = twingate_group.ppgia95_validation.id
     security_policy_id = data.twingate_security_policy.mfa.id
 
-    # Reautorização periódica (relogin) do acesso do PPGIA95.
+    # Periodic re-authorization (relogin) of the PPGIA95 access.
     access_policy {
       mode     = "AUTO_LOCK"
       duration = "7d"
@@ -195,69 +198,71 @@ resource "twingate_resource" "iot_ppgia96" {
   }
 }
 
-# Security Policy pré-definida no Admin Console que exige MFA.
+# Predefined Security Policy in the Admin Console that requires MFA.
 data "twingate_security_policy" "mfa" {
   name = "Require MFA"
 }
 ```
 
-> **Princípio do menor privilégio:** publique o **Vault** (`:8200`) como um
-> Resource **separado**, associado apenas a um grupo de administradores — nunca
-> ao `ppgia95-validacao`. O PPGIA95 precisa falar apenas com o servidor IoT; o
-> acesso direto ao Vault não deve ser concedido ao ambiente de testes.
+> **Least-privilege principle:** publish the **Vault** (`:8200`) as a
+> **separate** Resource, associated only with an administrators group — never
+> with `ppgia95-validation`. PPGIA95 only needs to talk to the IoT server;
+> direct Vault access must not be granted to the testing environment.
 
-### 4.2 Token de API necessário e execução do Terraform
+### 4.2 Required API token and running Terraform
 
-#### Gerar o token de API
+#### Generate the API token
 
-O provider `Twingate/twingate` autentica com um **token de API** (distinto dos
-tokens do Connector). Para gerá-lo:
+The `Twingate/twingate` provider authenticates with an **API token** (distinct
+from the Connector tokens). To generate it:
 
-1. No Admin Console, vá em **Settings → API → Generate Token**.
-2. Dê um nome descritivo (ex.: `terraform-ppgia96`).
-3. Selecione a permissão **Read, Write & Provision** — obrigatória para o
-   Terraform criar Groups, Resources e Policies.
-4. Copie o token na hora: ele **não é exibido novamente** após fechar a janela.
+1. In the Admin Console, go to **Settings → API → Generate Token**.
+2. Give it a descriptive name (e.g., `terraform-ppgia96`).
+3. Select the **Read, Write & Provision** permission — required for Terraform
+   to create Groups, Resources, and Policies.
+4. Copy the token immediately: it is **not shown again** after you close the
+   window.
 
-> O token de API concede acesso administrativo à sua rede Twingate. Trate-o como
-> segredo (mesmo nível do root token do Vault): nunca versione e revogue se vazar.
+> The API token grants administrative access to your Twingate network. Treat it
+> as a secret (same level as the Vault root token): never version it and revoke
+> it if it leaks.
 
-#### Fornecer o token com segurança
+#### Provide the token securely
 
-Use uma variável marcada como `sensitive` e passe o valor por **variável de
-ambiente** (recomendado) ou por um `terraform.tfvars` fora do controle de versão:
+Use a variable marked as `sensitive` and pass the value via an **environment
+variable** (recommended) or a `terraform.tfvars` outside version control:
 
 ```hcl
 # variables.tf
 variable "twingate_api_token" {
-  description = "Token de API do Twingate (Read, Write & Provision)"
+  description = "Twingate API token (Read, Write & Provision)"
   type        = string
   sensitive   = true
 }
 ```
 
 ```bash
-# Opção A (recomendada): variável de ambiente
-export TF_VAR_twingate_api_token="<seu-token-de-api>"
-#   ou, direto no provider, via TWINGATE_API_TOKEN="<seu-token>"
+# Option A (recommended): environment variable
+export TF_VAR_twingate_api_token="<your-api-token>"
+#   or, directly on the provider, via TWINGATE_API_TOKEN="<your-token>"
 
-# Opção B: terraform.tfvars (adicione ao .gitignore — NUNCA versione)
+# Option B: terraform.tfvars (add it to .gitignore — NEVER version it)
 cat > terraform.tfvars <<'EOF'
-twingate_api_token = "<seu-token-de-api>"
+twingate_api_token = "<your-api-token>"
 EOF
 echo "terraform.tfvars" >> .gitignore
 ```
 
-#### Executar
+#### Run
 
 ```bash
-cd ztna/terraform/          # onde ficam os .tf acima
-terraform init             # baixa o provider Twingate/twingate ~> 3.0
-terraform plan             # revisa: 2 a criar (group + resource)
-terraform apply            # aplica após confirmar com "yes"
+cd ztna/terraform/          # where the .tf files above live
+terraform init             # downloads the Twingate/twingate ~> 3.0 provider
+terraform plan             # review: 2 to create (group + resource)
+terraform apply            # applies after confirming with "yes"
 ```
 
-#### Output esperado do `terraform apply`
+#### Expected `terraform apply` output
 
 ```text
 Terraform used the selected providers to generate the following execution
@@ -266,10 +271,10 @@ plan. Resource actions are indicated with the following symbols:
 
 Terraform will perform the following actions:
 
-  # twingate_group.ppgia95_validacao will be created
-  + resource "twingate_group" "ppgia95_validacao" {
+  # twingate_group.ppgia95_validation will be created
+  + resource "twingate_group" "ppgia95_validation" {
       + id   = (known after apply)
-      + name = "ppgia95-validacao"
+      + name = "ppgia95-validation"
     }
 
   # twingate_resource.iot_ppgia96 will be created
@@ -304,44 +309,45 @@ Do you want to perform these actions?
 
   Enter a value: yes
 
-twingate_group.ppgia95_validacao: Creating...
-twingate_group.ppgia95_validacao: Creation complete after 1s [id=R3JvdXA6ODkw]
+twingate_group.ppgia95_validation: Creating...
+twingate_group.ppgia95_validation: Creation complete after 1s [id=R3JvdXA6ODkw]
 twingate_resource.iot_ppgia96: Creating...
 twingate_resource.iot_ppgia96: Creation complete after 2s [id=UmVzb3VyY2U6MzQwNDQ3]
 
 Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
 ```
 
-Os `id` são Base64 opacos (padrão da Admin API do Twingate) e servem para
-`terraform import` ou referência cruzada. Após o apply, o Resource **IoT Server
-(PPGIA96)** aparece no Admin Console associado ao grupo `ppgia95-validacao`, e
-somente os membros desse grupo (com MFA) conseguem alcançar o servidor IoT.
+The `id` values are opaque Base64 (a Twingate Admin API convention) and are used
+for `terraform import` or cross-reference. After the apply, the **IoT Server
+(PPGIA96)** Resource appears in the Admin Console associated with the
+`ppgia95-validation` group, and only that group's members (with MFA) can reach
+the IoT server.
 
-> Para publicar também o Vault como Resource restrito a administradores, replique
-> o bloco `twingate_resource` apontando para `:8200` e associe a um grupo de
-> admins — conforme a nota de menor privilégio acima.
-
----
-
-## 5. Como isto se encaixa no fluxo IoT-TPM
-
-1. O dispositivo IoT é provisionado por `iot-tpm/.../scripts/init_device.sh`:
-   uma **semente TOTP aleatória** é gerada, **selada no TPM do dispositivo** e
-   **registrada no Vault** do PPGIA96 (por `device_id`).
-2. O servidor IoT (PPGIA96) lê a semente do Vault e valida o TOTP.
-3. Toda a comunicação entre o cliente (PPGIA95) e o servidor (PPGIA96) trafega
-   **através do Twingate**: sem o acesso ZTNA concedido, os endpoints do
-   servidor IoT e o Vault são inalcançáveis.
-
-Consulte os READMEs de [`iot-tpm/`](../iot-tpm/README.md) e
-[`vault-tpm/`](../vault-tpm/README.md) para os detalhes de provisionamento e do
-gerenciamento de segredos.
+> To also publish the Vault as an admin-restricted Resource, replicate the
+> `twingate_resource` block pointing to `:8200` and associate it with an admins
+> group — per the least-privilege note above.
 
 ---
 
-## 6. Referências
+## 5. How this fits into the IoT-TPM flow
+
+1. The IoT device is provisioned by `iot-tpm/.../scripts/init_device.sh`: a
+   **random TOTP seed** is generated, **sealed in the device's TPM**, and
+   **registered in the PPGIA96 Vault** (by `device_id`).
+2. The IoT server (PPGIA96) reads the seed from Vault and validates the TOTP.
+3. All communication between the client (PPGIA95) and the server (PPGIA96)
+   travels **through Twingate**: without the granted ZTNA access, the IoT
+   server endpoints and the Vault are unreachable.
+
+See the [`iot-tpm/`](../iot-tpm/README.md) and
+[`vault-tpm/`](../vault-tpm/README.md) READMEs for the provisioning and
+secret-management details.
+
+---
+
+## 6. References
 
 - Twingate — Deploy Connector via Docker:
   <https://www.twingate.com/docs/docker>
-- Twingate — Connectors (visão geral):
+- Twingate — Connectors (overview):
   <https://www.twingate.com/docs/connectors>

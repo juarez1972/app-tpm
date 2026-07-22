@@ -53,20 +53,20 @@ The network layer implements **ZTNA** via a **Twingate Connector** (deployed on-
 
 | Layer | Technology | Protection Provided |
 |---|---|---|
-| Baseline servers | TPM 2.0 (dTPM/fTPM) | Boot integrity (PCRs), Vault auto-unseal, HOTP via tpm2-pytss |
+| Baseline servers | TPM 2.0 (dTPM/fTPM) | Boot integrity (PCRs), Vault auto-unseal, TOTP via tpm2-pytss |
 | Critical servers | Intel SGX + Gramine | Enclave isolation; CPU-encrypted memory (MEE) |
 | Confidential cloud | Intel TDX + vTPM | Full Trust Domain; hypervisor cannot access VM RAM |
-| IoT / Edge | TPM 2.0 (Infineon SLB9670 / swtpm) | Non-exportable HMAC seed; monotonic counter in NVRAM |
+| IoT / Edge | TPM 2.0 (Infineon SLB9670 / swtpm) | Non-exportable HMAC seed sealed in the TPM (time-based TOTP) |
 
 - **Root of Trust:** keys generated and stored inside the TPM with `fixedtpm` and `fixedparent` attributes.
 - **Sealing:** the Vault unseal key is sealed against PCRs (0, 7), ensuring access only when firmware has not been tampered with.
-- **HOTP seed sequestration:** the shared secret is a *Restricted Keyed-Hash* in TPM NVRAM — rollback is physically impossible.
+- **TOTP seed sequestration:** the shared secret is a *Restricted Keyed-Hash* in TPM NVRAM — rollback is physically impossible.
 
 ### Secret Management (HashiCorp Vault)
 
 - **Auto-unseal via PKCS#11 → TPM:** eliminates human intervention at boot time.
 - **Dynamic credentials (short TTL):** Vault issues short-lived tokens for databases and APIs via IaC policies.
-- **Lifecycle:** `Generated (plaintext in Vault)` → `Obfuscated (HOTP keystream in transit)` → `Discarded`.
+- **Lifecycle:** `Generated (plaintext in Vault)` → `Obfuscated (TOTP keystream in transit)` → `Discarded`.
 
 ### Zero Trust Connectivity (ZTNA)
 
@@ -74,24 +74,24 @@ The network layer implements **ZTNA** via a **Twingate Connector** (deployed on-
 - **Continuous posture validation:** the ZTNA layer verifies identity, device health, and location before the TOTP request ever reaches the IoT server.
 - **Micro-segmentation:** invalidates sessions on context change (IP, device), blocking pivoting.
 
-### Hardware-Anchored HOTP Authentication
+### Hardware-Anchored TOTP Authentication
 
 The nIA agent uses `tpm2-pytss` to request HMAC computation from the TPM without ever exposing the key:
 
 ```python
-# HOTP computation delegated to hardware (Layer 2, Article Section V)
+# TOTP computation delegated to hardware (Layer 2, Article Section V)
+import time
 from tpm2_pytss import ESAPI
 
-def generate_hardware_hotp(nv_index, key_handle):
+def generate_hardware_totp(time_step, key_handle):
     ctx = ESAPI()
-    ctx.nv_increment(nv_index)          # increment monotonic counter inside TPM
-    counter_val = ctx.nv_read(nv_index)
-    hmac_result = ctx.hmac(key_handle, counter_val)
-    return truncate_to_hotp(hmac_result) # key never leaves the chip
+    T = int(time.time() // time_step)   # time counter (T0=0, step=30/60 s)
+    hmac_result = ctx.hmac(key_handle, T)
+    return truncate_to_totp(hmac_result) # key never leaves the chip
 ```
 
 ```
-HOTP(K, C) = Truncate(HMAC-SHA-1_TPM(K, C))
+TOTP(K, T) = Truncate(HMAC-SHA-1_TPM(K, T)),  T = floor((now - T0) / X)
 ```
 
 ## 3. Repository Structure
@@ -241,14 +241,14 @@ sudo tpm2_getrandom 4
 sudo tpm2_getcap properties-fixed | head
 ```
 
-#### Provision HOTP on TPM (Article sequence, Section VI.B)
+#### Provision TOTP on TPM (Article sequence, Section VI.B)
 
 ```bash
 # 1. Self-test and initialization
 tpm2_selftest --full
 tpm2_startup --clear
 
-# 2. Create NV index and monotonic counter
+# 2. Create NV index for the sealed TOTP seed (time-based, RFC 6238)
 tpm2_nvdefine -C o -s 8 \
   -a "ownerread|ownerwrite|authread|authwrite|extend" \
   -p nvpass 0x1500016
@@ -624,12 +624,12 @@ python3 rest_logic_test.py     # full E2E with a Vault dev server (needs the 'va
 │                          ┌──────────▼──────────┐                │
 │                          │   nIA Agent          │                │
 │                          │   (tpm2-pytss)       │                │
-│                          │   HOTP = TPM_HMAC(K,C)│               │
+│                          │   TOTP = TPM_HMAC(K,T)│               │
 │                          └──────────┬──────────┘                │
 │                                     │ Obfuscated Payload         │
 │  ┌──────────────────────────────────▼──────────────────────────┐│
 │  │              ZTNA Gateway (Twingate Connector)              ││
-│  │   Validates: identity + posture + location + HOTP           ││
+│  │   Validates: identity + posture + location + TOTP           ││
 │  └──────────────────────────────────┬───────────────────────────┘│
 │                                     │ TLS Tunnel + ZTNA          │
 │                          ┌──────────▼──────────┐                │
@@ -640,15 +640,15 @@ python3 rest_logic_test.py     # full E2E with a Vault dev server (needs the 'va
 └──────────────────────────────────────────────────────────────────┘
 
 Credential lifecycle:
-  Generated (plaintext in Vault) → Obfuscated (HOTP in transit) → Discarded
+  Generated (plaintext in Vault) → Obfuscated (TOTP in transit) → Discarded
 ```
 
 **Boot and authentication flow:**
 
 1. **Boot:** TPM validates firmware integrity via PCRs.
 2. **Unseal:** Vault requests unseal key from TPM via PKCS#11 (~300 ms).
-3. **Auth:** nIA agent generates HOTP via TPM and authenticates to the ZTNA Gateway.
-4. **ZTNA verification:** device posture + HOTP validated simultaneously.
+3. **Auth:** nIA agent generates TOTP via TPM and authenticates to the ZTNA Gateway.
+4. **ZTNA verification:** device posture + TOTP validated simultaneously.
 5. **Transaction:** credential travels obfuscated over TLS + ZTNA tunnel; only Hub Services de-obfuscates it.
 
 ## 9. Experimental Results
@@ -659,7 +659,7 @@ Full evaluation details are available in Section VI of the article.
 
 | Operation | Software-only | TPM (Tier 1) | SGX (Tier 2) | TDX (Tier 3) |
 | --- | --- | --- | --- | --- |
-| HOTP generation | ~2 ms | ~65 ms | ~85 ms | ~70 ms |
+| TOTP generation | ~2 ms | ~65 ms | ~85 ms | ~70 ms |
 | Vault authentication | ~45 ms | ~110 ms | ~130 ms | ~115 ms |
 | nIA end-to-end | ~120 ms | ~195 ms | ~225 ms | ~205 ms |
 | Auto-unseal (RTO) | ~3 min | ~300 ms | ~350 ms | ~320 ms |
