@@ -449,5 +449,27 @@ export TPM2TOOLS_TCTI="swtpm:path=/tmp/mytpm.sock"
 
 The initializer honors `TPM2TOOLS_TCTI`, so pointing it at the emulator lets you exercise the full seal/unseal flow in CI without physical hardware.
 
+### Automated CI test (`ci/test_seal_unseal.sh`)
+
+The repository ships an end-to-end test that runs the **same** `vault_initializer.py` used in production against a real Vault and an **emulated TPM** (`swtpm`) — no physical hardware required. It validates:
+
+1. The emulated TPM answers (`tpm2_getrandom`).
+2. Vault starts **sealed** and **uninitialized**.
+3. The initializer runs `sys/init` (5/3), **seals** each unseal key and the root token into the TPM, and **auto-unseals** Vault — producing `*.enc` markers plus `*.enc.pub` / `*.enc.priv` blobs.
+4. **No plaintext secrets** are written (no `*.txt`) and the persistent SRK exists at `0x81010001`.
+5. Idempotency: a second run with Vault already unsealed is a no-op.
+6. **Cross-boot recovery**: Vault is restarted (back to *sealed*) and re-unsealed using **only** the keys recovered from the TPM — proving the persistent SRK survives reboots.
+
+Run it locally (needs `swtpm`, `tpm2-tools`, the `vault` binary, and `python3` with `requests`):
+
+```bash
+cd vault-tpm
+./ci/test_seal_unseal.sh
+```
+
+In CI it runs automatically via GitHub Actions — see [`.github/workflows/ci-seal-unseal.yml`](../.github/workflows/ci-seal-unseal.yml), which installs the dependencies and executes the test on pushes/PRs that touch `vault-init/` or `ci/`.
+
+> **Note:** the seal/unseal steps call `tpm2_flushcontext` after each `tpm2_createprimary` / `tpm2_load` to free transient object slots. Without this, a TPM (physical or emulated) quickly returns `0x902` ("out of memory for object contexts") when sealing multiple shares.
+
 
 *Part of the [app-tpm](https://github.com/juarez1972/app-tpm) project — PPGIa/PUCPR, Brazil.*

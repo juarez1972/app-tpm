@@ -1,5 +1,4 @@
 tpm-data/
 vault-data/
 venv/
-
-
+__pycache__/

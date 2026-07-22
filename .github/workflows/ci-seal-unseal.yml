@@ -1,0 +1,67 @@
+name: CI — seal/unseal (swtpm)
+
+# Valida o fluxo real de init + auto-unseal do vault-tpm usando um TPM 2.0
+# emulado (swtpm), sem necessidade de hardware físico. Roda o MESMO
+# vault_initializer.py usado em produção contra um Vault real, e comprova a
+# recuperação das chaves seladas no TPM entre reinícios (SRK persistente).
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "vault-tpm/vault-init/**"
+      - "vault-tpm/ci/**"
+      - ".github/workflows/ci-seal-unseal.yml"
+  pull_request:
+    paths:
+      - "vault-tpm/vault-init/**"
+      - "vault-tpm/ci/**"
+      - ".github/workflows/ci-seal-unseal.yml"
+  workflow_dispatch: {}
+
+jobs:
+  seal-unseal:
+    name: seal/unseal com swtpm
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    env:
+      VAULT_VERSION: "1.13.3"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar swtpm + tpm2-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            swtpm swtpm-tools tpm2-tools curl
+          echo "-- versões --"
+          swtpm --version || true
+          tpm2_getrandom --version || true
+
+      - name: Instalar Vault ${{ env.VAULT_VERSION }}
+        run: |
+          cd /tmp
+          curl -fsSLo vault.zip \
+            "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip"
+          unzip -o vault.zip
+          sudo install -m 0755 vault /usr/local/bin/vault
+          vault version
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências Python do initializer
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r vault-tpm/vault-init/requirements.txt
+
+      - name: Rodar teste de seal/unseal
+        working-directory: vault-tpm
+        run: |
+          chmod +x ci/test_seal_unseal.sh
+          ./ci/test_seal_unseal.sh

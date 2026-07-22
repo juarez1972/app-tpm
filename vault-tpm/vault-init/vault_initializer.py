@@ -81,6 +81,21 @@ def check_tpm():
         return False
 
 
+def flush_transient():
+    """
+    Libera TODOS os objetos transientes carregados no TPM.
+
+    Crítico: o TPM tem pouquíssimos slots para objetos transientes (tipicamente
+    ~3). Cada tpm2_createprimary/tpm2_load deixa um objeto carregado; sem liberar,
+    o próximo tpm2_create/tpm2_load falha com 0x902 ("out of memory for object
+    contexts"). Chamamos isto após cada operação para manter os slots livres.
+    """
+    try:
+        _tpm(["tpm2_flushcontext", "-t"], timeout=10)
+    except Exception:
+        pass
+
+
 # ----------------------------------------------------------------------------
 # TPM: SRK persistente + seal/unseal (recuperável entre boots)
 # ----------------------------------------------------------------------------
@@ -95,10 +110,14 @@ def ensure_srk():
               "-c", primary, "-Q"])
     if r.returncode != 0:
         log(f"❌ falha ao criar primário: {r.stderr.decode(errors='ignore')}")
+        flush_transient()
         return False
     r = _tpm(["tpm2_evictcontrol", "-C", "o", "-c", primary, SRK_HANDLE, "-Q"])
     if os.path.exists(primary):
         os.unlink(primary)
+    # O SRK já está persistido no handle fixo; o objeto primário transiente
+    # que sobrou deve ser liberado, senão esgota os slots do TPM.
+    flush_transient()
     if r.returncode != 0:
         log(f"❌ falha ao persistir SRK: {r.stderr.decode(errors='ignore')}")
         return False
@@ -153,6 +172,8 @@ def tpm_unseal(out_enc: str):
     finally:
         if os.path.exists(ctx):
             os.unlink(ctx)
+        # tpm2_load deixou um objeto transiente carregado — liberar sempre.
+        flush_transient()
 
 
 # ----------------------------------------------------------------------------
@@ -216,17 +237,23 @@ def initialize_vault():
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # Sela cada unseal key no TPM (sem cópia em claro)
+    # Sela cada unseal key no TPM (sem cópia em claro).
+    # Se QUALQUER selamento falhar, abortamos: destravar agora (com as chaves em
+    # memória) mascararia o problema e deixaria o Vault IMPOSSÍVEL de reabrir no
+    # próximo boot, já que não haveria .enc para recuperar. Melhor falhar cedo.
     for i, key in enumerate(keys):
         enc_path = os.path.join(OUTPUT_DIR, f"unseal_key_{i}.enc")
         if tpm_seal(key.encode(), enc_path):
             log(f"✅ unseal key {i} selada no TPM -> {enc_path}")
         else:
-            log(f"❌ falha ao selar unseal key {i}")
+            log(f"❌ falha ao selar unseal key {i} — abortando (chaves não persistidas).")
+            return None
 
     # Sela o root token no TPM (sem cópia em claro)
-    if root_token and tpm_seal(root_token.encode(), ROOT_TOKEN_ENC):
-        log("✅ root token selado no TPM (não gravado em texto claro).")
+    if root_token and not tpm_seal(root_token.encode(), ROOT_TOKEN_ENC):
+        log("❌ falha ao selar o root token no TPM — abortando.")
+        return None
+    log("✅ root token selado no TPM (não gravado em texto claro).")
     log("🔑 IMPORTANTE: o root token está protegido apenas pelo TPM deste host.")
 
     return keys
