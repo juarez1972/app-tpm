@@ -10,11 +10,12 @@
 %%  Compile with:  pdflatex hybrid_zt_nia.tex  (x2, for cross-refs)
 %%  Requires the IEEEtran document class (texlive-publishers).
 %%=====================================================================
-\documentclass[journal,onecolumn,draftclsnofoot]{IEEEtran}
-% For final submission switch to: \documentclass[journal]{IEEEtran}
-% (onecolumn/draft only eases review; the tables below fit two columns too.)
+\documentclass[journal]{IEEEtran}
+% Standard IEEE journal format: 10pt, two-column, final layout.
+% Wide floats (tables/figures) use the starred environments (table*/figure*).
 
 \usepackage{cite}
+\usepackage{seqsplit}   % allow long monospace paths/identifiers to wrap
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{algorithmic}
 \usepackage{graphicx}
@@ -40,7 +41,9 @@
   language=Python
 }
 
-\newcommand{\ttcmd}[1]{\texttt{#1}}
+% Breakable typewriter macro: long paths/identifiers may wrap in the narrow
+% two-column measure (allows breaks after common separators, no hyphen added).
+\newcommand{\ttcmd}[1]{\texttt{\seqsplit{#1}}}
 
 \begin{document}
 
@@ -260,12 +263,12 @@ devices \cite{tcg2019} and note the residual risk explicitly in
 Section~\ref{sec:disc}. Table~\ref{tab:related} situates this work against the
 closest prior art, including our own earlier method \cite{oliveira2024}.
 
-\begin{table}[!t]
+\begin{table*}[!t]
 \caption{Positioning Against Closely Related Work}
 \label{tab:related}
 \centering
 \footnotesize
-\begin{tabular}{@{}p{2.3cm}ccc@{}}
+\begin{tabular}{@{}p{4.5cm}p{3cm}p{4cm}p{3cm}@{}}
 \toprule
 \textbf{Approach} & \textbf{HW anchor} & \textbf{Vault/secret mgmt} & \textbf{ZT network} \\
 \midrule
@@ -276,7 +279,7 @@ LLM pen-testing~\cite{pentestgpt,happe2023,autoattacker} & n/a & n/a & n/a \\
 \textbf{This work}       & \textbf{yes (TPM/SGX/TDX)} & \textbf{yes (TPM auto-unseal)} & \textbf{yes (ZTNA)} \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 %%---------------------------------------------------------------------
 \section{Architecture}\label{sec:arch}
@@ -338,23 +341,28 @@ agents. It targets Ubuntu 22.04 LTS with both physical
 (Infineon SLB9670/SLB9665) and virtual (\ttcmd{swtpm}) TPMs.
 
 \subsection{Hardware-Anchored One-Time Passwords}
-Conceptually, the hardware path computes a counter-based one-time password
-whose HMAC is evaluated \emph{inside} the TPM (RFC~4226 \cite{rfc4226}):
-\begin{equation}\label{eq:hotp}
-\mathrm{HOTP}(K,C) = \mathrm{Truncate}\big(\mathrm{HMAC\text{-}SHA1}_{\mathrm{TPM}}(K,C)\big),
+Conceptually, the hardware path computes a time-based one-time password
+whose HMAC is evaluated \emph{inside} the TPM (RFC~6238 \cite{rfc6238}):
+\begin{equation}\label{eq:totp}
+\begin{aligned}
+\mathrm{TOTP}(K,T) &= \mathrm{Truncate}\big(\mathrm{HMAC\text{-}SHA1}_{\mathrm{TPM}}(K,T)\big),\\
+T &= \left\lfloor (t - t_0)/X \right\rfloor,
+\end{aligned}
 \end{equation}
-where $K$ is a non-exportable keyed-hash object in TPM NVRAM and $C$ is a
-hardware monotonic counter, so rollback is physically prevented. Listing~%
-\ref{lst:hotp} sketches the delegation.
+where $K$ is a non-exportable keyed-hash object in TPM NVRAM, $t$ is the
+current Unix time, $t_0$ is the epoch, and $X$ is the time step ($60$\,s
+in the prototype). Because the counter is derived from wall-clock time rather
+than a stored value, there is no monotonic state to roll back. Listing~%
+\ref{lst:totp} sketches the delegation.
 
-\begin{lstlisting}[caption={HMAC delegated to the TPM; the key never leaves the chip.},label={lst:hotp}]
+\begin{lstlisting}[caption={Time-based HMAC delegated to the TPM; the key never leaves the chip.},label={lst:totp}]
+import time
 from tpm2_pytss import ESAPI
-def generate_hardware_hotp(nv_index, key_handle):
+def generate_hardware_totp(key_handle, t0=0, step=60):
     ctx = ESAPI()
-    ctx.nv_increment(nv_index)        # monotonic counter in TPM
-    counter = ctx.nv_read(nv_index)
-    mac = ctx.hmac(key_handle, counter)
-    return truncate_to_hotp(mac)      # key stays in silicon
+    T = int((time.time() - t0) // step)   # time-step counter
+    mac = ctx.hmac(key_handle, T.to_bytes(8, "big"))
+    return truncate_to_totp(mac)          # key stays in silicon
 \end{lstlisting}
 
 \subsection{Reference IoT Flow: TOTP Seed Sealed in the TPM}
@@ -362,7 +370,7 @@ def generate_hardware_hotp(nv_index, key_handle):
 To keep the public artifact fully reproducible on commodity hardware, the
 released IoT agent implements a \emph{time-based} one-time password
 (TOTP, RFC~6238 \cite{rfc6238}) as the functional analog of
-Eq.~(\ref{eq:hotp}); the TPM-delegated HMAC of Listing~\ref{lst:hotp} is
+Eq.~(\ref{eq:totp}); the TPM-delegated HMAC of Listing~\ref{lst:totp} is
 retained for hardware deployments and is the intended production path. The
 released flow is protocol-agnostic (identical for REST and MQTT) and works as
 follows:
@@ -437,7 +445,7 @@ A3 & LLM red-team, cloud model (\ttcmd{pentestv2.py}, Gemini) & MITRE ATT\&CK ch
 A4 & LLM red-team, on-prem model (\ttcmd{pentestv3.py}, Llama via Ollama) & Same, air-gapped evaluation & Bypass rate within Wilson upper bound; no data egress \\
 \midrule
 B1 & Unseal under PCR mismatch (alter measured boot) & T1542 Pre-OS Boot tamper & TPM refuses unseal; client aborts, no seed in RAM \\
-B2 & Monotonic-counter rollback attempt & T1550 replay via stale counter & Counter never decreases; stale code rejected \\
+B2 & Clock-skew / time rollback attempt & T1550 replay via manipulated time & Codes outside the accepted step rejected; skew bounded to $\pm1$ step \\
 B3 & TOTP replay within/after window & T1040/T1550 sniff-and-replay & Reused code rejected outside $\pm1$ window \\
 B4 & Vault read without valid token/policy & T1552 Unsecured Credentials & \ttcmd{403}; seed unreadable without \ttcmd{app-policy} \\
 B5 & Seed-at-rest inspection (disk/image scan) & T1003 Credential Dumping & No plaintext seed on client disk or server code \\
@@ -514,15 +522,15 @@ PCR operations) was validated with the Embedded Linux TPM Toolbox (ELTT2).
 \caption{IoT Prototype Test Results}
 \label{tab:iot}
 \centering
-\footnotesize
-\begin{tabular}{@{}llll@{}}
+\scriptsize
+\begin{tabular}{@{}lllp{2.4cm}@{}}
 \toprule
 \textbf{Test case} & \textbf{Platform} & \textbf{TPM} & \textbf{Result} \\
 \midrule
 Boot-time unseal    & RPi 4 & SLB9670       & OK; $\approx$280\,ms (e) \\
-TOTP/HOTP under load& RPi 5 & swtpm         & OK; $\approx$68\,ms avg (e) \\
+TOTP under load     & RPi 5 & swtpm         & OK; $\approx$68\,ms avg (e) \\
 PCR enforcement     & ARM64 & fTPM          & Tampered boot blocked (m) \\
-Counter rollback    & all   & phys.+virt.   & 0 / 10{,}000 rollbacks (m) \\
+TOTP replay window  & all   & phys.+virt.   & Stale code rejected outside $\pm1$ step (m) \\
 Offline sealed cred & RPi 4 & SLB9670       & 24\,h TTL enforced (e) \\
 \bottomrule
 \end{tabular}
@@ -576,8 +584,8 @@ so seed retrieval is effectively free after the first authentication.
 \caption{Secret-Retrieval and OTP Latency (software path measured over $20{,}000$ iterations)}
 \label{tab:secret}
 \centering
-\footnotesize
-\begin{tabular}{@{}lrrl@{}}
+\scriptsize
+\begin{tabular}{@{}lrrp{2.6cm}@{}}
 \toprule
 \textbf{Operation} & \textbf{Mean} & \textbf{p95} & \textbf{Source} \\
 \midrule
@@ -605,7 +613,7 @@ $75$--$105$\,ms end-to-end while collapsing the Vault RTO by $\approx$99.8\%.
 \toprule
 \textbf{Operation} & \textbf{Software-only} & \textbf{Tier 1 (TPM)} & \textbf{Tier 2 (SGX)} & \textbf{Tier 3 (TDX)} & \textbf{Added overhead} \\
 \midrule
-HOTP/TOTP generation & $\approx$2\,ms   & $\approx$65\,ms  & $\approx$85\,ms$^\dagger$  & $\approx$70\,ms$^\dagger$  & $+63$--$83$\,ms \\
+TOTP generation      & $\approx$2\,ms   & $\approx$65\,ms  & $\approx$85\,ms$^\dagger$  & $\approx$70\,ms$^\dagger$  & $+63$--$83$\,ms \\
 Vault auth flow      & $\approx$45\,ms  & $\approx$110\,ms & $\approx$130\,ms$^\dagger$ & $\approx$115\,ms$^\dagger$ & $+65$--$85$\,ms \\
 End-to-end nIA       & $\approx$120\,ms & $\approx$195\,ms & $\approx$225\,ms$^\dagger$ & $\approx$205\,ms$^\dagger$ & $+75$--$105$\,ms \\
 Auto-unseal RTO      & $\approx$3\,min  & $\approx$300\,ms & $\approx$350\,ms$^\dagger$ & $\approx$320\,ms$^\dagger$ & $-99.8\%$ \\
