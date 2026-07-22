@@ -206,6 +206,121 @@ data "twingate_security_policy" "mfa" {
 > ao `ppgia95-validacao`. O PPGIA95 precisa falar apenas com o servidor IoT; o
 > acesso direto ao Vault não deve ser concedido ao ambiente de testes.
 
+### 4.2 Token de API necessário e execução do Terraform
+
+#### Gerar o token de API
+
+O provider `Twingate/twingate` autentica com um **token de API** (distinto dos
+tokens do Connector). Para gerá-lo:
+
+1. No Admin Console, vá em **Settings → API → Generate Token**.
+2. Dê um nome descritivo (ex.: `terraform-ppgia96`).
+3. Selecione a permissão **Read, Write & Provision** — obrigatória para o
+   Terraform criar Groups, Resources e Policies.
+4. Copie o token na hora: ele **não é exibido novamente** após fechar a janela.
+
+> O token de API concede acesso administrativo à sua rede Twingate. Trate-o como
+> segredo (mesmo nível do root token do Vault): nunca versione e revogue se vazar.
+
+#### Fornecer o token com segurança
+
+Use uma variável marcada como `sensitive` e passe o valor por **variável de
+ambiente** (recomendado) ou por um `terraform.tfvars` fora do controle de versão:
+
+```hcl
+# variables.tf
+variable "twingate_api_token" {
+  description = "Token de API do Twingate (Read, Write & Provision)"
+  type        = string
+  sensitive   = true
+}
+```
+
+```bash
+# Opção A (recomendada): variável de ambiente
+export TF_VAR_twingate_api_token="<seu-token-de-api>"
+#   ou, direto no provider, via TWINGATE_API_TOKEN="<seu-token>"
+
+# Opção B: terraform.tfvars (adicione ao .gitignore — NUNCA versione)
+cat > terraform.tfvars <<'EOF'
+twingate_api_token = "<seu-token-de-api>"
+EOF
+echo "terraform.tfvars" >> .gitignore
+```
+
+#### Executar
+
+```bash
+cd ztna/terraform/          # onde ficam os .tf acima
+terraform init             # baixa o provider Twingate/twingate ~> 3.0
+terraform plan             # revisa: 2 a criar (group + resource)
+terraform apply            # aplica após confirmar com "yes"
+```
+
+#### Output esperado do `terraform apply`
+
+```text
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # twingate_group.ppgia95_validacao will be created
+  + resource "twingate_group" "ppgia95_validacao" {
+      + id   = (known after apply)
+      + name = "ppgia95-validacao"
+    }
+
+  # twingate_resource.iot_ppgia96 will be created
+  + resource "twingate_resource" "iot_ppgia96" {
+      + address           = "10.0.0.96"
+      + id                = (known after apply)
+      + name              = "IoT Server (PPGIA96)"
+      + remote_network_id  = "UmVtb3RlTmV0d29yazoxMjM0"
+      + protocols          = {
+          + allow_icmp = true
+          + tcp        = {
+              + policy = "RESTRICTED"
+              + ports  = ["5000", "8883"]
+            }
+          + udp        = { + policy = "DENY_ALL" }
+        }
+      + access_group {
+          + group_id           = (known after apply)
+          + security_policy_id = "U2VjdXJpdHlQb2xpY3k6NTY3"
+          + access_policy {
+              + mode     = "AUTO_LOCK"
+              + duration = "7d"
+            }
+        }
+    }
+
+Plan: 2 to add, 0 to change, 0 to destroy.
+
+Do you want to perform these actions?
+  Terraform will perform the actions described above.
+  Only 'yes' will be accepted to approve.
+
+  Enter a value: yes
+
+twingate_group.ppgia95_validacao: Creating...
+twingate_group.ppgia95_validacao: Creation complete after 1s [id=R3JvdXA6ODkw]
+twingate_resource.iot_ppgia96: Creating...
+twingate_resource.iot_ppgia96: Creation complete after 2s [id=UmVzb3VyY2U6MzQwNDQ3]
+
+Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
+```
+
+Os `id` são Base64 opacos (padrão da Admin API do Twingate) e servem para
+`terraform import` ou referência cruzada. Após o apply, o Resource **IoT Server
+(PPGIA96)** aparece no Admin Console associado ao grupo `ppgia95-validacao`, e
+somente os membros desse grupo (com MFA) conseguem alcançar o servidor IoT.
+
+> Para publicar também o Vault como Resource restrito a administradores, replique
+> o bloco `twingate_resource` apontando para `:8200` e associe a um grupo de
+> admins — conforme a nota de menor privilégio acima.
+
 ---
 
 ## 5. Como isto se encaixa no fluxo IoT-TPM
