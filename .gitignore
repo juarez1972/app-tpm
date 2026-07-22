@@ -1,0 +1,23 @@
+# Python virtualenvs (nunca versionar)
+venv/
+.venv/
+env/
+ENV/
+
+# Bytecode / caches Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Dados sensíveis / runtime do vault-tpm (blobs do TPM, storage do Vault)
+tpm-data/
+vault-data/
+vault-file/
+
+# Logs
+*.log
+
+# Sistema operacional / editores
+.DS_Store
+*.swp
