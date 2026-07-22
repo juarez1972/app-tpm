@@ -121,21 +121,19 @@ vault-tpm/
 │
 ├── tpm-validator/
 │   ├── Dockerfile                  # Container image (x86_64 / amd64)
-│   ├── Dockerfile.debian           # Debian-based variant
 │   ├── tpm_validator.py            # Main health-check service (port 8080)
 │   ├── health_check.py             # TPM and Vault health-check helper
 │   └── requirements.txt            # Python dependencies for this service
 │
 ├── vault-init/
 │   ├── Dockerfile                  # Container image (x86_64 / amd64)
-│   ├── Dockerfile.debian           # Debian-based variant
-│   ├── vault_initializer.py        # Vault initializer: TPM encrypt → unseal
+│   ├── vault_initializer.py        # Vault init + TPM-sealed auto-unseal (retry/backoff)
 │   └── requirements.txt            # Python dependencies for this service
 │
 ├── setup_secret.sh                 # Helper script: writes an example secret into Vault
 ├── system_status.sh                # Displays overall stack health (TPM, Vault, containers)
 ├── test_tpm_integration.sh         # End-to-end TPM ↔ Vault integration test suite
-└── validade_system.sh              # System validation script (filename is as in the repo)
+└── validate_system.sh             # System validation script
 ```
 
 **Notes on unversioned / runtime artifacts** — see [Section 9](#9-unversioned--runtime-artifacts).
@@ -309,7 +307,7 @@ Vault server configuration file: defines the storage backend, TCP listener, and 
 | `system_status.sh` | Queries and prints the health of all three containers, the TPM device, and Vault |
 | `test_tpm_integration.sh` | End-to-end integration tests: TPM read, Vault write, Vault read, health checks |
 | `setup_secret.sh` | Writes an example secret to Vault — useful for smoke-testing after initialization |
-| `validade_system.sh` | Full system validation script (note: filename in the repository is `validade_system.sh`, not `validate_system.sh`) |
+| `validate_system.sh` | Full system validation script |
 
 ---
 
@@ -373,7 +371,7 @@ The test suite covers:
 
 ```bash
 ./system_status.sh
-./validade_system.sh
+./validate_system.sh
 ```
 
 ---
@@ -426,10 +424,5 @@ swtpm socket --tpmstate dir=/tmp/mytpm --tpm2 --ctrl type=unixio,path=/tmp/mytpm
 export TPM2TOOLS_TCTI="swtpm:path=/tmp/mytpm.sock"
 ```
 
-### Dockerfile variants
-
-Both `vault-init/` and `tpm-validator/` include a standard `Dockerfile` and a `Dockerfile.debian`. The Debian variants may be preferred in environments where Alpine-based images cause `glibc`/`musl` compatibility issues with TPM libraries.
-
----
 
 *Part of the [app-tpm](https://github.com/juarez1972/app-tpm) project — PPGIa/PUCPR, Brazil.*
