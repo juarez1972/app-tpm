@@ -122,7 +122,13 @@ vault-tpm/
 ├── README.md
 │
 ├── scripts/
-│   └── setup_vault_policies.hcl   # Minimum-privilege Vault access policies (HCL)
+│   ├── setup_vault_policies.hcl   # Minimum-privilege Vault access policies (HCL)
+│   ├── get_root_token.sh          # Recover a TPM-sealed token (root or app) to stdout only
+│   └── revoke_root_token.sh       # Create least-privilege token, then revoke the root token
+│
+├── ci/
+│   ├── test_seal_unseal.sh              # CI: init + seal/unseal + cross-boot recovery (swtpm)
+│   └── test_tpm_integration_swtpm.sh    # CI: TPM basic + key operations (swtpm)
 │
 ├── templates/
 │   └── index.html                  # Web UI template served by tpm-validator
@@ -138,11 +144,13 @@ vault-tpm/
 │   ├── vault_initializer.py        # Vault init + TPM-sealed auto-unseal (retry/backoff)
 │   └── requirements.txt            # Python dependencies for this service
 │
-├── setup_secret.sh                 # Helper script: writes an example secret into Vault
+├── setup_secret.sh                 # Smoke-test: writes/reads an example secret (token from TPM)
 ├── system_status.sh                # Displays overall stack health (TPM, Vault, containers)
-├── test_tpm_integration.sh         # End-to-end TPM ↔ Vault integration test suite
-└── validate_system.sh             # System validation script
+├── test_tpm_integration.sh         # End-to-end TPM ↔ Vault test (physical TPM + full stack; not in CI)
+└── validate_system.sh             # System validation script (token from TPM)
 ```
+
+> The GitHub Actions workflow lives at repository root in [`.github/workflows/ci-seal-unseal.yml`](../.github/workflows/ci-seal-unseal.yml). A root-level [`.gitignore`](../.gitignore) excludes virtualenvs, caches, logs and runtime data (`tpm-data/`, `vault-data/`).
 
 **Notes on unversioned / runtime artifacts** — see [Section 9](#9-unversioned--runtime-artifacts).
 
@@ -394,10 +402,14 @@ Vault server configuration file: defines the storage backend, TCP listener, and 
 
 | Script | Purpose |
 |---|---|
-| `system_status.sh` | Queries and prints the health of all three containers, the TPM device, and Vault |
-| `test_tpm_integration.sh` | End-to-end integration tests: TPM read, Vault write, Vault read, health checks |
-| `setup_secret.sh` | Writes an example secret to Vault — useful for smoke-testing after initialization |
-| `validate_system.sh` | Full system validation script |
+| `scripts/get_root_token.sh` | Recovers a TPM-sealed token (root by default, or any via `TOKEN_BASENAME`) and prints it to **stdout only** — nothing written to disk or logs. See [5.4](#54-recovering-the-initial-root-token). |
+| `scripts/revoke_root_token.sh` | Creates a least-privilege token (policy `app-policy`), validates it, seals it in the TPM (`app_token`), then revokes the root token. Supports `--dry-run`. See [5.5](#55-revoking-the-initial-root-token-least-privilege-hardening). |
+| `setup_secret.sh` | Smoke-test: authenticates with the TPM-recovered token (prefers `app_token`, else root), then writes and reads back an example secret. No plaintext token on disk. |
+| `validate_system.sh` | Full system validation; authenticates with the TPM-recovered token (no hardcoded token). |
+| `system_status.sh` | Queries and prints the health of all three containers, the TPM device, and Vault. |
+| `test_tpm_integration.sh` | End-to-end integration tests against the running stack — **requires a physical TPM (`/dev/tpmrm0`) and is not run in CI** (see [CI section](#tpm-integration-test-citesttpmintegrationswtpmsh)). |
+| `ci/test_seal_unseal.sh` | CI test (swtpm): init + seal/unseal + cross-boot recovery + root-token auth. See [CI section](#automated-ci-test-citestsealunsealsh). |
+| `ci/test_tpm_integration_swtpm.sh` | CI test (swtpm): basic TPM ops + key ops, without docker-compose or a physical TPM. |
 
 ---
 
@@ -445,17 +457,19 @@ docker-compose logs tpm-validator --tail=20
 ### 8.4 Integration test suite
 
 ```bash
-./test_tpm_integration.sh
+./test_tpm_integration.sh          # requires a physical TPM + the full stack up
 ```
 
-The test suite covers:
+The test suite covers real-time TPM validation, inter-container communication, Vault write/read, data persistence across restarts, automatic recovery, and continuous health checks. It needs a **physical TPM (`/dev/tpmrm0`)** and the running `docker-compose` stack, so it is **not** executed in CI.
 
-- Real-time TPM validation
-- Inter-container communication
-- Vault write and read operations
-- Data persistence across container restarts
-- Automatic recovery after Vault restart
-- Continuous health check operation
+For CI (and any VM without a physical TPM), the equivalent checks run against the **emulated TPM (swtpm)**:
+
+```bash
+./ci/test_seal_unseal.sh                 # init + seal/unseal + cross-boot recovery + root-token auth
+./ci/test_tpm_integration_swtpm.sh       # basic TPM ops + key ops (createprimary/create/sign)
+```
+
+Both run automatically via GitHub Actions — see [`.github/workflows/ci-seal-unseal.yml`](../.github/workflows/ci-seal-unseal.yml) and the [Software TPM (swtpm) CI section](#automated-ci-test-citestsealunsealsh).
 
 ### 8.5 System-level validation
 
@@ -475,10 +489,12 @@ The following paths are generated at runtime by the stack and are intentionally 
 | `tpm-data/` | **Not versioned — runtime** | TPM-sealed material generated by `vault_initializer.py`; created on first `docker-compose up` |
 | `tpm-data/unseal_key_*.enc` (+ `.pub`/`.priv`) | **Not versioned — runtime** | TPM-sealed Shamir unseal keys |
 | `tpm-data/root_token.enc` (+ `.pub`/`.priv`) | **Not versioned — runtime** | TPM-sealed Vault root token (no plaintext copy) |
+| `tpm-data/app_token.enc` (+ `.pub`/`.priv`) | **Not versioned — runtime** | TPM-sealed least-privilege token, created by `scripts/revoke_root_token.sh` |
 | `vault-data/` | **Not versioned — runtime** | Vault storage backend data; persists secrets between restarts |
+| `**/venv/` | **Not versioned** | Python virtualenvs — recreate locally; ignored via the root `.gitignore` |
 | `.env` | **Not versioned — planned** | Environment variables (TPM handle, shares/threshold, backoff, etc.) |
 
-> **Never commit `tpm-data/` or `vault-data/` to version control.** Both directories contain cryptographic material. Both are listed in `.gitignore`; if any files were tracked before that rule existed, untrack them with `git rm -r --cached tpm-data vault-data`.
+> **Never commit `tpm-data/` or `vault-data/` to version control.** Both directories contain cryptographic material. A root-level [`.gitignore`](../.gitignore) excludes them (plus `venv/`, `__pycache__/`, `*.log`). If any files were tracked before that rule existed, untrack them with `git rm -r --cached tpm-data vault-data`.
 
 ---
 
