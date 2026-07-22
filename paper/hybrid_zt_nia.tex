@@ -400,10 +400,12 @@ Vault} at \ttcmd{secret/data/tpm-verified/iot/devices/<device\_id>}
 and unseals the seed into memory. If the PCR/boot state changed, the unseal
 fails and the device cannot authenticate---no credential is exposed.
 \item \textbf{Authentication}: the client sends \ttcmd{device\_id} plus an
-\emph{HMAC envelope} of the current TOTP code (Section~\ref{sec:envelope})
-rather than the bare code (REST \ttcmd{POST /verify} or MQTT \ttcmd{iot/verify}).
+\emph{HMAC envelope} of the current TOTP code (Section~\ref{sec:envelope},
+Listing~\ref{lst:envelope}) rather than the bare code
+(REST \ttcmd{POST /verify} or MQTT \ttcmd{iot/verify}).
 \item \textbf{Server}: reads the same seed from Vault by \ttcmd{device\_id},
-caches it in memory, and validates the code with a $\pm 1$-window tolerance.
+caches it in memory, and validates the envelope with a $\pm 1$-window tolerance
+using the \ttcmd{open\_and\_verify} routine of Listing~\ref{lst:envelope}.
 \end{enumerate}
 This asymmetry is the key security property: the \emph{client} holds its seed
 only inside hardware (never on disk), while the \emph{server} holds seeds only
@@ -433,7 +435,33 @@ nor forge a fresh envelope, closing the sniffing/replay gap
 \ttcmd{OTP\_MODE=plain} switch is retained only for backward compatibility;
 the default (\ttcmd{hmac}) enforces the envelope. The added cost is a single
 HMAC-SHA256 over a short pre-image ($\approx$\,$3\,\mu$s per side), negligible
-against the TOTP verification and network round-trip.
+against the TOTP verification and network round-trip. Listing~\ref{lst:envelope}
+shows the seal/verify pair as implemented in the released, dependency-free
+\ttcmd{crypto\_envelope.py} shared by the REST and MQTT agents.
+
+\begin{lstlisting}[caption={On-the-wire OTP obfuscation: the client seals the code, the server verifies across the valid window in constant time with anti-replay.},label={lst:envelope}]
+import hmac, hashlib, secrets, time
+
+def seal_otp(seed, otp, ts=None):        # client side
+    ts = int(ts or time.time())
+    nonce = secrets.token_hex(16)        # 128-bit, single-use
+    msg = f"{otp}|{nonce}|{ts}".encode()
+    mac = hmac.new(seed.encode(), msg, hashlib.sha256).hexdigest()
+    return {"nonce": nonce, "ts": ts, "mac": mac}  # OTP never sent
+
+def open_and_verify(seed, env, totp, window=1, skew=90, cache=None):
+    if abs(int(time.time()) - env["ts"]) > skew:  # freshness
+        return False
+    if cache and not cache.check_and_store(env["nonce"]):
+        return False                     # replay
+    for d in range(-window, window + 1): # +/-1 time step
+        cand = totp.at(time.time() + d * totp.interval)
+        msg = f"{cand}|{env['nonce']}|{env['ts']}".encode()
+        exp = hmac.new(seed.encode(), msg, hashlib.sha256).hexdigest()
+        if hmac.compare_digest(exp, env["mac"]):  # constant-time
+            return True
+    return False
+\end{lstlisting}
 
 \subsection{IaC-Driven Tiered Protection}
 Terraform sensitivity labels map workloads to hardware tiers
