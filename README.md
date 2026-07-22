@@ -106,9 +106,11 @@ app-tpm/
 │   │   └── setup_vault_policies.hcl  # Vault access policies
 │   ├── docker-compose.yml
 │   ├── system_status.sh
-│   └── test_tpm_integration.sh
+│   ├── test_tpm_integration.sh
+│   └── README.md            # TPM-validated auto-unseal guide
 │
 ├── iot-tpm/            # nIA agent for IoT: random TOTP seed sealed in TPM (Layer 1)
+│   ├── README.md            # provisioning, TOTP over REST/MQTT, troubleshooting
 │   ├── client-iot/
 │   │   ├── client_rest_api/          # REST client + pyotp + TPM
 │   │   │   ├── app/certs/gerar_certificados.py
@@ -146,17 +148,17 @@ app-tpm/
 │   ├── .env.example         # TWINGATE_NETWORK / ACCESS / REFRESH tokens
 │   └── README.md            # deploy + two-server topology (PPGIA96/PPGIA95)
 │
-├── pentest/            # Security & performance testing (Article Sections V, VI)
-│   ├── README.md            # how to run both test families
+├── pentest/            # Security and Performance Tests (Article Sections V, VI)
+│   ├── README.md            # how to run both test families (English)
 │   └── scripts/
 │       ├── security/         # adversarial red-team (Nmap/OpenVAS/ZAP/SQLMap/Hydra + LLM)
-│       │   ├── pentest.py        # orchestrator — Google Gemini (cloud), v1
-│       │   ├── pentestv2.py      # orchestrator — Google Gemini (cloud), v2
-│       │   ├── pentestv3.py      # orchestrator — Cyber-Llama/Ollama (local) + OpenVAS GMP
+│       │   ├── pentest.py                # orchestrator — Google Gemini (cloud), v1
+│       │   ├── pentestv2.py              # orchestrator — Google Gemini (cloud), v2
+│       │   ├── pentestv3.py              # orchestrator — Cyber-Llama/Ollama (local) + OpenVAS GMP
 │       │   ├── start_scan_openvas.py     # trigger an OpenVAS/GVM scan (GMP over TLS)
 │       │   ├── testa_conexao_openvas.py  # GVM connection/auth smoke-test
 │       │   ├── teste_gemini.py           # Gemini connectivity smoke-test
-│       │   ├── users.txt / passwords.txt # Hydra brute-force dictionaries
+│       │   └── users.txt / passwords.txt # Hydra brute-force dictionaries
 │       └── performance/      # benchmarks & end-to-end latency tests
 │           ├── bench_totp.py             # TOTP gen/verify + cached secret read (N=20k)
 │           ├── rest_logic_test.py        # E2E REST with swtpm + Vault dev
@@ -164,11 +166,11 @@ app-tpm/
 │           ├── mqtt_nofvault_test.py     # E2E MQTT without broker/Vault
 │           └── measurements_summary.md   # consolidated sandbox metrics
 │
-└── paper/             # Journal article (IEEEtran) + references + preview
+└── paper/             # Journal article (IEEEtran) + references + compiled PDF
     ├── hybrid_zt_nia.tex          # authoritative IEEEtran source
     ├── references.bib             # BibTeX bibliography (23 entries)
-    ├── hybrid_zt_nia_preview.pdf  # ReportLab visual preview
-    └── build_preview.py           # preview generator
+    ├── hybrid_zt_nia_preview.pdf  # compiled output (pdflatex + bibtex, 11 pages)
+    └── build_preview.py           # legacy ReportLab preview generator
 ```
 
 ## 4. Technologies Used
