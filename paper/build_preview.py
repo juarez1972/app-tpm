@@ -12,7 +12,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame, Paragraph,
                                 Spacer, Table, TableStyle, FrameBreak, NextPageTemplate,
-                                CondPageBreak)
+                                CondPageBreak, Flowable)
+from reportlab.lib.colors import HexColor
 
 FD = "/usr/share/fonts/truetype/liberation"
 pdfmetrics.registerFont(TTFont("Serif", f"{FD}/LiberationSerif-Regular.ttf"))
@@ -89,6 +90,128 @@ def tbl(caption_txt, header, rows, colWidths, label, span_note=None, full=False)
     els.append(Spacer(1,6))
     return els
 
+# ============ ARCHITECTURE DIAGRAM FLOWABLE ============
+class ArchDiagram(Flowable):
+    """Full-width architecture diagram mirroring the TikZ figure in the .tex."""
+    def __init__(self, width, height=250):
+        Flowable.__init__(self)
+        self.width = width
+        self.height = height
+    def wrap(self, aw, ah):
+        return (self.width, self.height)
+    def _box(self, c, x, y, w, h, lines, fill=None, dashed=False, bold_first=True):
+        c.saveState()
+        if fill: c.setFillColor(fill)
+        else: c.setFillColor(colors.white)
+        c.setStrokeColor(HexColor("#444444")); c.setLineWidth(1)
+        if dashed: c.setDash(3,2)
+        c.roundRect(x, y, w, h, 3, stroke=1, fill=1)
+        c.setDash()
+        c.setFillColor(colors.black)
+        n=len(lines); lh=9.5
+        ty = y + h/2 + (n*lh)/2 - lh + 1
+        for i,ln in enumerate(lines):
+            fs = 7.6 if (i==0 and bold_first) else 6.4
+            fn = "Serif-B" if (i==0 and bold_first) else "Serif"
+            c.setFont(fn, fs)
+            c.drawCentredString(x+w/2, ty, ln)
+            ty -= lh
+        c.restoreState()
+    def _arrow(self, c, x1,y1,x2,y2, dashed=False, dotted=False):
+        c.saveState()
+        c.setStrokeColor(HexColor("#333333")); c.setLineWidth(1.1)
+        c.setFillColor(HexColor("#333333"))
+        if dashed: c.setDash(4,2)
+        if dotted: c.setDash(1,2)
+        c.line(x1,y1,x2,y2)
+        c.setDash()
+        import math
+        ang=math.atan2(y2-y1,x2-x1); a=5
+        c.line(x2,y2, x2-a*math.cos(ang-0.4), y2-a*math.sin(ang-0.4))
+        c.line(x2,y2, x2-a*math.cos(ang+0.4), y2-a*math.sin(ang+0.4))
+        c.restoreState()
+    def _label(self, c, x, y, txt, size=6.2):
+        c.saveState(); c.setFont("Serif", size); c.setFillColor(HexColor("#222222"))
+        c.drawCentredString(x,y,txt); c.restoreState()
+    def _serverframe(self, c, x, y, w, h, title):
+        c.saveState()
+        c.setStrokeColor(HexColor("#888888")); c.setLineWidth(1); c.setDash(2,2)
+        c.roundRect(x,y,w,h,4, stroke=1, fill=0); c.setDash()
+        c.setFont("Serif-B", 8); c.setFillColor(colors.black)
+        c.drawCentredString(x+w/2, y+h+3, title)
+        c.restoreState()
+    def draw(self):
+        c = self.canv
+        W = self.width
+        # ---- PPGIA96 (production) frame, left ----
+        p96x, p96y, p96w, p96h = 8, 70, 250, 150
+        self._serverframe(c, p96x, p96y, p96w, p96h, "PPGIA96 — Production")
+        conn = (p96x+14, p96y+118, 150, 26)   # Twingate connector (top)
+        vault= (p96x+14, p96y+70, 110, 28)     # Vault
+        srv  = (p96x+140, p96y+70, 96, 28)     # IoT server
+        stpm = (p96x+14, p96y+16, 150, 30)     # server TPM
+        self._box(c,*conn, ["Twingate Connector","(Docker, outbound only)"], fill=colors.white, dashed=True)
+        self._box(c,*vault, ["HashiCorp Vault","KV v2  secret/"], fill=HexColor("#EDEDED"))
+        self._box(c,*srv, ["IoT Server","REST :5000 / MQTT :8883"])
+        self._box(c,*stpm, ["Server TPM 2.0","seals Vault unseal shares"], fill=HexColor("#F3F3F3"))
+        # ---- PPGIA95 (testing) frame, right ----
+        p95x = 300; p95y=70; p95w=200; p95h=150
+        self._serverframe(c, p95x, p95y, p95w, p95h, "PPGIA95 — Testing / Validation")
+        pentest=(p95x+30, p95y+118, 140, 26)
+        client =(p95x+30, p95y+70, 140, 28)
+        ctpm   =(p95x+18, p95y+14, 165, 32)
+        self._box(c,*pentest, ["Pentest module","pentest.py / v2 Gemini / v3 Ollama"])
+        self._box(c,*client, ["IoT Client","unseals seed, sends TOTP"])
+        self._box(c,*ctpm, ["Client TPM 2.0","seals TOTP seed (SRK 0x81010001)"], fill=HexColor("#F3F3F3"))
+        # ---- IaC layer (bottom, spanning) ----
+        iac=(8, 8, 492, 34)
+        self._box(c,*iac, ["Infrastructure as Code — Terraform + Docker Compose",
+            "sensitivity labels select tier: standard=TPM | high=TPM+SGX | critical=vTPM+TDX"],
+            fill=HexColor("#F7F7F5"))
+        def cx(b): return b[0]+b[2]/2
+        def cy(b): return b[1]+b[3]/2
+        # edges
+        # TPM auto-unseal -> Vault (server)
+        self._arrow(c, cx(stpm), stpm[1]+stpm[3], cx(vault), vault[1])
+        self._label(c, cx(stpm)+40, (stpm[1]+stpm[3]+vault[1])/2, "auto-unseal")
+        # Vault -> server read seed
+        self._arrow(c, vault[0]+vault[2], cy(vault)+5, srv[0], cy(srv)+5)
+        self._label(c, (vault[0]+vault[2]+srv[0])/2, cy(vault)+11, "read otp_secret")
+        # client TPM -> client unseal
+        self._arrow(c, cx(ctpm), ctpm[1]+ctpm[3], cx(client), client[1])
+        self._label(c, cx(ctpm)+30, (ctpm[1]+ctpm[3]+client[1])/2, "unseal seed")
+        # client -> server TOTP over ZTNA (main runtime path)
+        self._arrow(c, client[0], cy(client), srv[0]+srv[2], cy(srv))
+        self._label(c, (client[0]+srv[0]+srv[2])/2, cy(client)+9, "TOTP / TLS (via ZTNA)")
+        # connector -> relay (outbound): draw a short arrow to the left edge, label to the left
+        self._arrow(c, conn[0], cy(conn), conn[0]-18, cy(conn), dashed=True)
+        self._label(c, conn[0]-9, cy(conn)+7, "relay (out)", size=5.8)
+        # IaC -> both TPMs (provisioning, dashed)
+        self._arrow(c, cx(stpm), iac[1]+iac[3], cx(stpm), stpm[1], dashed=True)
+        self._arrow(c, cx(ctpm), iac[1]+iac[3], cx(ctpm), ctpm[1], dashed=True)
+        # register seed once: client TPM -> Vault, routed BELOW the server box (dotted)
+        ry = vault[1]-10
+        self._arrow(c, ctpm[0], cy(ctpm)-8, ctpm[0]-6, ry, dotted=True)
+        self._arrow(c, ctpm[0]-6, ry, vault[0]+vault[2]/2, ry, dotted=True)
+        self._arrow(c, vault[0]+vault[2]/2, ry, vault[0]+vault[2]/2, vault[1], dotted=True)
+        self._label(c, (ctpm[0]-6+vault[0]+vault[2]/2)/2, ry-6, "register seed (once)", size=5.8)
+
+def fig_arch(width):
+    els=[]
+    els.append(ArchDiagram(width, height=232))
+    els.append(Spacer(1,3))
+    els.append(Paragraph("<b>Fig. 1.</b>&nbsp; Hybrid Zero Trust architecture. "
+        "Layer 1 (hardware root of trust) seals credentials in the TPM on both hosts; "
+        "Layer 2 (Vault) is TPM-auto-unsealed and stores per-device OTP seeds; "
+        "Layer 3 (ZTNA) exposes services only through an outbound-only Twingate connector. "
+        "The IoT seed is sealed in the client TPM and registered once in the server Vault "
+        "(dotted), so the plaintext seed never touches disk; at run time the client sends a "
+        "TOTP over TLS through the ZTNA perimeter, and the server reads the matching seed "
+        "from Vault. Everything is provisioned by IaC, which also selects the protection tier.",
+        caption))
+    els.append(Spacer(1,6))
+    return els
+
 # ============ FRONT MATTER (spans full width via first frame) ============
 story.append(Paragraph("A Hybrid Zero Trust Architecture for Non-Interactive "
     "Authentication: Integrating Hardware Trust Anchors with Software-Defined "
@@ -128,8 +251,13 @@ story.append(Spacer(1,4))
 story.append(Paragraph("<b><i>Index Terms</i></b>&mdash;Zero Trust, Trusted Platform "
 "Module, HashiCorp Vault, non-interactive authentication, Infrastructure as Code, "
 "MITRE ATT&amp;CK, IoT security, confidential computing, TOTP, LLM red-teaming.", kw))
-story.append(Spacer(1,8))
-story.append(FrameBreak())  # move into two-column body
+story.append(Spacer(1,12))
+# ---- full-width architecture figure right after front matter (mirrors figure* in .tex) ----
+fullw_top = PAGE[0]-LM-RM
+for el in fig_arch(fullw_top):
+    story.append(el)
+story.append(NextPageTemplate('rest'))
+story.append(FrameBreak())  # move into two-column body on page 2
 
 # ============ BODY (two columns) ============
 section("I", "Introduction")
@@ -180,7 +308,7 @@ story.extend(tbl("Positioning Against Closely Related Work",
 
 section("III", "Architecture")
 para("The architecture rests on the premise that software-only security is "
-"insufficient for nIA. It is organized in three enforcement layers, each "
+"insufficient for nIA. It is organized in three enforcement layers (Fig. 1), each "
 "corresponding to a concrete module in the public repository.")
 sub("A. Layer 1 — Hardware Root of Trust (TPM/SGX/TDX)")
 para0("Keys are generated inside the TPM with <font name=Mono size=7>fixedtpm</font> "
@@ -468,14 +596,9 @@ class Doc(BaseDocTemplate):
 
 frame_full = Frame(LM, BM, PAGE[0]-LM-RM, PAGE[1]-TM-BM, id='full',
                    leftPadding=0,rightPadding=0,topPadding=0,bottomPadding=0)
-# first page: full-width top frame + two columns below it
-top_h = 4.3*inch
-frame_top = Frame(LM, PAGE[1]-TM-top_h, PAGE[0]-LM-RM, top_h, id='top',
-                  leftPadding=0,rightPadding=0,topPadding=0,bottomPadding=0)
-frame_l1 = Frame(LM, BM, colw, PAGE[1]-TM-BM-top_h-6, id='l1',
-                 leftPadding=0,rightPadding=0,topPadding=0,bottomPadding=0)
-frame_r1 = Frame(LM+colw+GUT, BM, colw, PAGE[1]-TM-BM-top_h-6, id='r1',
-                 leftPadding=0,rightPadding=0,topPadding=0,bottomPadding=0)
+# first page: single full-width frame holding title + abstract + architecture figure
+frame_first = Frame(LM, BM, PAGE[0]-LM-RM, PAGE[1]-TM-BM, id='first_full',
+                    leftPadding=0,rightPadding=0,topPadding=0,bottomPadding=0)
 frame_l = Frame(LM, BM, colw, PAGE[1]-TM-BM, id='l',
                 leftPadding=0,rightPadding=0,topPadding=0,bottomPadding=0)
 frame_r = Frame(LM+colw+GUT, BM, colw, PAGE[1]-TM-BM, id='r',
@@ -493,11 +616,9 @@ def footer(canvas, doc):
 doc = Doc(OUT, pagesize=PAGE, title="Hybrid Zero Trust for Non-Interactive Authentication (preview)",
           author="Perplexity Computer")
 doc.addPageTemplates([
-    PageTemplate(id='first', frames=[frame_top, frame_l1, frame_r1], onPage=footer),
+    PageTemplate(id='first', frames=[frame_first], onPage=footer),
     PageTemplate(id='rest', frames=[frame_l, frame_r], onPage=footer),
     PageTemplate(id='wide', frames=[frame_wide], onPage=footer),
 ])
-# ensure after first page we switch to 'rest'
-story.insert(0, NextPageTemplate('rest'))
 doc.build(story)
 print("built", OUT, os.path.getsize(OUT), "bytes")

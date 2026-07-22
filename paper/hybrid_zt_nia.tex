@@ -24,6 +24,8 @@
 \usepackage{array}
 \usepackage{url}
 \usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc,shapes.geometric}
 \usepackage{hyperref}
 \hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
 
@@ -198,7 +200,85 @@ LLM pen-testing~\cite{pentestgpt,happe2023,autoattacker} & n/a & n/a & n/a \\
 %%---------------------------------------------------------------------
 The architecture rests on the premise that software-only security is
 insufficient for nIA. It is organized in three enforcement layers, each of
-which corresponds to a concrete module in the public repository.
+which corresponds to a concrete module in the public repository. Fig.~\ref{fig:arch}
+gives an overview of the layers, the two-server deployment topology, and the
+data paths described in the remainder of this section.
+
+%%------------------- Architecture figure (TikZ) -------------------
+\begin{figure*}[!t]
+\centering
+\begin{tikzpicture}[
+  font=\footnotesize,
+  node distance=6mm,
+  box/.style={rectangle,rounded corners=2pt,draw=black!70,thick,
+              align=center,minimum height=8mm,inner sep=3pt,fill=white},
+  hw/.style={box,fill=black!5},
+  vault/.style={box,fill=black!8},
+  ztna/.style={box,draw=black!80,dashed},
+  layerlbl/.style={font=\footnotesize\bfseries,align=left},
+  flow/.style={-{Latex[length=2mm]},thick},
+  ctrl/.style={-{Latex[length=2mm]},thick,dashed},
+  server/.style={rectangle,rounded corners=3pt,draw=black!55,thick,inner sep=6pt}
+]
+
+% ===================== PPGIA96 (production) =====================
+% Layer 3 - ZTNA connector (top of production server)
+\node[ztna] (conn) {Twingate Connector\\\scriptsize (Docker, outbound only)};
+% Layer 2 - Vault
+\node[vault,below=8mm of conn] (vault) {HashiCorp Vault\\\scriptsize KV\,v2 \texttt{secret/}};
+\node[box,right=8mm of vault] (srv) {IoT Server\\\scriptsize REST :5000 / MQTT :8883};
+% Layer 1 - TPM (server)
+\node[hw,below=8mm of vault] (stpm) {Server TPM\,2.0\\\scriptsize seals Vault unseal shares};
+
+\begin{scope}[on background layer]
+  \node[server,fit=(conn)(vault)(srv)(stpm),
+        label={[font=\footnotesize\bfseries]above:PPGIA96 --- Production}] (p96) {};
+\end{scope}
+
+% ===================== PPGIA95 (testing) =====================
+\node[box,right=34mm of srv] (client) {IoT Client\\\scriptsize unseals seed, sends TOTP};
+\node[hw,below=8mm of client] (ctpm) {Client TPM\,2.0\\\scriptsize seals TOTP seed (SRK 0x81010001)};
+\node[box,above=8mm of client] (pentest) {Pentest module\\\scriptsize pentest.py / v2 Gemini / v3 Ollama};
+
+\begin{scope}[on background layer]
+  \node[server,fit=(client)(ctpm)(pentest),
+        label={[font=\footnotesize\bfseries]above:PPGIA95 --- Testing / Validation}] (p95) {};
+\end{scope}
+
+% ===================== IaC layer (bottom, spanning) =====================
+\node[box,fill=black!3,below=10mm of stpm,minimum width=52mm] (iac)
+  {Infrastructure as Code --- Terraform + Docker Compose\\\scriptsize sensitivity labels select tier: standard=TPM $\vert$ high=TPM+SGX $\vert$ critical=vTPM+TDX};
+
+% ===================== edges =====================
+% provisioning: IaC drives both servers
+\draw[ctrl] (iac.north) -- ++(0,4mm) -| (stpm.south);
+\draw[ctrl] (iac.east) -| ($(ctpm.south)+(-6mm,0)$) -- (ctpm.south);
+% server-side: TPM auto-unseal -> Vault
+\draw[flow] (stpm) -- node[right,font=\scriptsize]{auto-unseal} (vault);
+% server reads seed from Vault
+\draw[flow] (vault) -- node[above,font=\scriptsize]{read \texttt{otp\_secret}} (srv);
+% client TPM -> client (unseal)
+\draw[flow] (ctpm) -- node[right,font=\scriptsize]{unseal seed} (client);
+% client -> server over ZTNA (the only path between servers)
+\draw[flow] (client) -- node[above,font=\scriptsize,align=center]{TOTP over TLS\\(via ZTNA)} (srv);
+% connector mediates: dashed boundary to relay
+\draw[ctrl] (conn.north) -- ++(0,4mm) node[above,font=\scriptsize]{Twingate relay (out)};
+% provisioning registers seed in Vault (one-time)
+\draw[flow,densely dotted] (ctpm.north west) .. controls +(-10mm,10mm) and +(10mm,-14mm) ..
+     node[above,font=\scriptsize,pos=0.5]{register seed (once)} (vault.east);
+
+\end{tikzpicture}
+\caption{Hybrid Zero Trust architecture. \emph{Layer~1} (hardware root of trust)
+seals credentials in the TPM on both hosts; \emph{Layer~2} (Vault) is
+TPM-auto-unsealed and stores per-device OTP seeds; \emph{Layer~3} (ZTNA) exposes
+services only through an outbound-only Twingate connector. The IoT seed is
+sealed in the client TPM and registered once in the server Vault (dotted),
+so the plaintext seed never touches disk; at run time the client sends a TOTP
+over TLS through the ZTNA perimeter, and the server reads the matching seed
+from Vault. Everything is provisioned by IaC, which also selects the protection
+tier.}
+\label{fig:arch}
+\end{figure*}
 
 \subsection{Layer 1 --- Hardware Root of Trust (TPM/SGX/TDX)}
 Cryptographic keys are generated inside the TPM with the \ttcmd{fixedtpm} and
