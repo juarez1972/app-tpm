@@ -9,20 +9,18 @@ services:
       dockerfile: Dockerfile
     container_name: client-mqtt
     restart: unless-stopped
-    privileged: true
-    cap_add:
-      - SYS_ADMIN
-      - SYS_RESOURCE
-      - NET_ADMIN
     devices:
       - "/dev/tpm0:/dev/tpm0"
+      - "/dev/tpmrm0:/dev/tpmrm0"     # resource manager do TPM (usado pelo tpm2-tools)
     volumes:
-      - /sys/kernel/debug:/sys/kernel/debug:rw
       - ./certs:/app/certs:ro         # apenas ca.crt — sem chave privada no cliente
+      - ./tpm-data:/app/tpm-data:ro   # blobs selados <device>_otp.enc.pub/.priv
     env_file:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
+      - TPM_DATA_DIR=/app/tpm-data
+      - TPM2TOOLS_TCTI=device:/dev/tpmrm0
     extra_hosts:
       - "mqttserver.local:192.168.56.106"   # IP fixo do servidor — alterar se mudar
     profiles: ["dev"]
@@ -40,20 +38,18 @@ services:
     platform: linux/arm64
     container_name: client-mqtt-arm64
     restart: unless-stopped
-    privileged: true
-    cap_add:
-      - SYS_ADMIN
-      - SYS_RESOURCE
-      - NET_ADMIN
     devices:
       - "/dev/tpm0:/dev/tpm0"
+      - "/dev/tpmrm0:/dev/tpmrm0"     # resource manager do TPM (usado pelo tpm2-tools)
     volumes:
-      - /sys/kernel/debug:/sys/kernel/debug:rw
       - ./certs:/app/certs:ro         # apenas ca.crt — sem chave privada no cliente
+      - ./tpm-data:/app/tpm-data:ro   # blobs selados <device>_otp.enc.pub/.priv
     env_file:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
+      - TPM_DATA_DIR=/app/tpm-data
+      - TPM2TOOLS_TCTI=device:/dev/tpmrm0
     extra_hosts:
       - "mqttserver.local:192.168.56.106"   # IP fixo do servidor — alterar se mudar
     profiles: ["arm64"]

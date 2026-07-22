@@ -101,10 +101,13 @@ iot-tpm/
 │   │           └── gerar_certificados.py  # TLS cert generation for REST client
 │   │
 │   └── client_mqtt/
-│       ├── client_mqtt.py       # MQTT client (TLS + TPM auth)
+│       ├── client_mqtt.py       # MQTT client (TOTP loop; secret unsealed from TPM)
+│       ├── scripts/
+│       │   └── init_device.sh   # Device provisioning: generate secret, seal in TPM, register in Vault
 │       ├── Dockerfile           # Container image for MQTT client
 │       ├── Dockerfile.arm64     # ARM64 variant (e.g., Raspberry Pi)
 │       ├── docker-compose.yml
+│       ├── .env.example         # Sample client configuration
 │       └── requirements.txt
 │
 └── server/
@@ -117,10 +120,11 @@ iot-tpm/
     │   └── requirements.txt
     │
     └── server_mqtt/
-        ├── server_mqtt.py       # MQTT subscriber / authentication handler
-        ├── mosquitto.conf       # Mosquitto broker configuration
+        ├── server_mqtt.py       # MQTT subscriber: validates TOTP, reads secret from Vault
+        ├── mosquitto.conf       # Mosquitto broker configuration (TLS listener 8883)
         ├── Dockerfile
         ├── docker-compose.yml
+        ├── .env.example         # Sample server configuration (incl. Vault)
         └── requirements.txt
 ```
 
@@ -258,18 +262,24 @@ docker-compose up --build
 
 ### 6.3 MQTT server (Mosquitto + subscriber)
 
+The subscriber reads each device's TOTP secret from **HashiCorp Vault** (the
+`vault-tpm` project), keyed by `device_id`, and validates the code. Configure
+`VAULT_ADDR` / `VAULT_TOKEN` in `.env` (see `.env.example`). Without a reachable
+Vault it falls back to a single `OTP_SECRET` from `.env` (development only).
+
 #### Run directly
 
 ```bash
-cd iot-tpm/
-python server/server_mqtt/server_mqtt.py
+cd iot-tpm/server/server_mqtt/
+cp .env.example .env    # ajuste VAULT_ADDR, VAULT_TOKEN, etc.
+python server_mqtt.py
 ```
 
-#### Run with Docker Compose
+#### Run with Docker Compose (broker + subscriber)
 
 ```bash
 cd iot-tpm/server/server_mqtt/
-docker-compose up --build
+docker compose up --build
 ```
 
 ### 6.4 REST API client
@@ -281,26 +291,52 @@ python client-iot/client_rest_api/client_iot.py
 
 ### 6.5 MQTT client
 
+> **Provision the device first.** The client does not hold its OTP secret in
+> `.env` in production — the secret is **sealed in the device's TPM** and
+> **registered in the server's Vault**. Run the provisioning script once per
+> device before starting the client:
+>
+> ```bash
+> cd iot-tpm/client-iot/client_mqtt/
+> DEVICE_ID=device-001 \
+>   VAULT_ADDR=http://<server-ip>:8200 VAULT_TOKEN=<app_token> \
+>   ./scripts/init_device.sh
+> ```
+>
+> This generates a per-device Base32 TOTP secret, seals it in the TPM
+> (`tpm-data/<DEVICE_ID>_otp.enc.pub/.priv`, never written to disk in
+> plaintext) and writes it to the server's Vault at
+> `secret/data/tpm-verified/iot/devices/<DEVICE_ID>` (field `otp_secret`).
+> Omit `VAULT_TOKEN` to seal only in the TPM and register in Vault manually.
+> See [Section 8](#8-security-model) for the secret lifecycle.
+
 #### Run directly
 
 ```bash
-cd iot-tpm/
-python client-iot/client_mqtt/client_mqtt.py
+cd iot-tpm/client-iot/client_mqtt/
+DEVICE_ID=device-001 python client_mqtt.py
 ```
+
+The client recovers the sealed secret from the TPM into memory, then publishes
+a fresh TOTP code every `OTP_INTERVAL` seconds (default 60). If the TPM is
+unavailable it falls back to `OTP_SECRET` from `.env` (development only).
 
 #### Run with Docker Compose (x86_64)
 
 ```bash
 cd iot-tpm/client-iot/client_mqtt/
-docker-compose up --build
+cp .env.example .env   # ajuste DEVICE_ID, MQTT_BROKER, etc.
+docker compose --profile dev up --build
 ```
+
+The compose file mounts `./tpm-data` (sealed blobs) and `/dev/tpmrm0` into the
+container so the client can unseal its secret at startup.
 
 #### Run with Docker (ARM64 — e.g., Raspberry Pi)
 
 ```bash
 cd iot-tpm/client-iot/client_mqtt/
-docker build -f Dockerfile.arm64 -t iot-tpm-mqtt-arm64 .
-docker run --rm --device /dev/tpm0 --device /dev/tpmrm0 iot-tpm-mqtt-arm64
+docker compose --profile arm64 up --build
 ```
 
 ### 6.6 Full IoT agent (Docker)
@@ -348,25 +384,32 @@ Client                                 Server
 
 | Item | Value |
 |---|---|
-| Default port | `8883` |
-| TLS | Server TLS + client certificate |
+| Default port | `8883` (TLS) |
+| TLS | Server TLS via `mosquitto.conf` (mTLS optional — `require_certificate`) |
 | Broker | Eclipse Mosquitto (configured via `mosquitto.conf`) |
-| Auth topic | `auth/device/{device_id}` |
+| Verify topic | `iot/verify` (env `MQTT_TOPIC_VERIFY`) |
+| Response topic | `iot/response/{device_id}` |
+| MFA | TOTP (`pyotp`, `OTP_INTERVAL` seconds, default 60) |
+| Client secret source | Sealed in the device **TPM** (unsealed to RAM at start) |
+| Server secret source | **HashiCorp Vault** KV v2, keyed by `device_id` (fallback `.env`) |
 | Server handler | `server_mqtt.py` (Python subscriber) |
 
 **Authentication sequence:**
 
 ```
-Client                          Mosquitto Broker        server_mqtt.py
-  │                                    │                      │
-  │──── CONNECT (TLS client cert) ────►│                      │
+Device (client_mqtt.py)          Mosquitto Broker        server_mqtt.py
+  │  unseal OTP secret from TPM        │                      │  read OTP secret from
+  │  (RAM only)                        │                      │  Vault by device_id
+  │──── CONNECT (TLS) ────────────────►│                      │
   │◄─── CONNACK ───────────────────────│                      │
-  │                                    │                      │
-  │──── PUBLISH auth/device/{id} ─────►│──── message ────────►│
-  │                                    │                      │ verify signature
-  │◄─── PUBLISH auth/response/{id} ────│◄─── response ────────│
-  │                                    │                      │
+  │── PUBLISH iot/verify {id, otp} ───►│──── message ────────►│
+  │                                    │                      │ totp.verify(otp)
+  │◄─ PUBLISH iot/response/{id} ───────│◄─── {status} ────────│
+  │     {status: valid|invalid}        │                      │
 ```
+
+> **Consistency requirement:** `OTP_INTERVAL` must match on client and server,
+> otherwise every code is rejected. Keep it identical in both `.env` files.
 
 ---
 
@@ -386,6 +429,27 @@ Keys are sealed against a set of PCR (Platform Configuration Register) values th
 | PCR 7 | Secure Boot state |
 
 If any of these values change (e.g., firmware update, Secure Boot disabled, or OS tampering), the TPM will refuse to unseal the key — the device loses the ability to authenticate until the key is re-sealed by an authorized operator.
+
+### 8.1.1 MQTT device secret lifecycle (TOTP + Vault + TPM)
+
+For the MQTT flow, the shared secret is a per-device **TOTP** seed handled as
+follows:
+
+1. **Provisioning** (`scripts/init_device.sh`, once per device): a random
+   Base32 secret is generated in RAM, **sealed in the device's TPM** under the
+   persistent SRK (`0x81010001`) as `tpm-data/<device_id>_otp.enc.pub/.priv`,
+   and **written to the server's Vault** at
+   `secret/data/tpm-verified/iot/devices/<device_id>` (field `otp_secret`,
+   covered by the `app-policy` from the `vault-tpm` project). The plaintext
+   secret never touches disk.
+2. **Client runtime**: `client_mqtt.py` unseals the secret from the TPM into
+   memory (`tpm2_load` + `tpm2_unseal`) and derives TOTP codes. If PCR/boot
+   state changed, the unseal fails and the device cannot authenticate.
+3. **Server runtime**: `server_mqtt.py` reads the same secret from Vault by
+   `device_id`, caches it in memory, and validates each TOTP code.
+
+> The secret is never held in plaintext on disk on either side. The `.env`
+> `OTP_SECRET` is a **development-only** fallback for both components.
 
 ### 8.2 Threat Mitigations
 

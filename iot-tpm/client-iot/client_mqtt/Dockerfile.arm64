@@ -6,13 +6,8 @@ FROM --platform=linux/arm64 python:3.11-slim
 # E builder multi-arch ativo via:
 #   docker buildx create --use
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libffi-dev \
-    libssl-dev \
     libtss2-dev \
     tpm2-tools \
-    bpfcc-tools \
-    python3-bpfcc \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

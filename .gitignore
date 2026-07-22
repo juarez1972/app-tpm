@@ -15,6 +15,16 @@ tpm-data/
 vault-data/
 vault-file/
 
+# Arquivos de ambiente com segredos (mantém os .env.example versionados)
+.env
+*/.env
+**/.env
+!.env.example
+!**/.env.example
+
+# Certificados de runtime (gerados por gerar_certificados.py)
+certs/
+
 # Logs
 *.log
 
