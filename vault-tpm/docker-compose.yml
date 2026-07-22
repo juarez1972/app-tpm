@@ -6,11 +6,15 @@ services:
     container_name: vault
     ports:
       - "8201:8200"
-    command: server -dev -dev-root-token-id=root -dev-listen-address=0.0.0.0:8200
+    command: server -config=/vault/config/vault-config.hcl
     cap_add:
       - IPC_LOCK
+    volumes:
+      - ./vault-config.hcl:/vault/config/vault-config.hcl:ro
+      - ./vault-data:/vault/file
     networks:
       - vault-network
+    restart: unless-stopped
 
   vault-initializer:
     build: ./vault-init
@@ -25,6 +29,7 @@ services:
       - vault
     networks:
       - vault-network
+    restart: "no"
 
   tpm-validator:
     build: ./tpm-validator
@@ -34,11 +39,12 @@ services:
     devices:
       - "/dev/tpmrm0:/dev/tpmrm0"
     ports:
-      - "8080:8080"  # Para health checks
+      - "8080:8080"
     depends_on:
       - vault-initializer
     networks:
       - vault-network
+    restart: unless-stopped
 
 networks:
   vault-network:

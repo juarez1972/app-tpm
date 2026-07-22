@@ -1,150 +1,102 @@
 import os
 import sys
 import time
-import requests
+import json
 import base64
+import shutil
+import requests
 import subprocess
 from pathlib import Path
 
+
+VAULT_ADDR = os.getenv("VAULT_ADDR", "http://vault:8200")
+OUTPUT_DIR = "/app/tpm-data"
+
+
+def run_cmd(cmd, timeout=30, env=None):
+    return subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env or os.environ.copy()
+    )
+
+
 def check_tpm():
-    """Verifica se o TPM está acessível"""
     try:
-        result = subprocess.run(['tpm2_getrandom', '4', '--tcti', 'device:/dev/tpmrm0'], capture_output=True, timeout=10)
+        result = subprocess.run(
+            ['tpm2_getrandom', '4', '--tcti', 'device:/dev/tpmrm0'],
+            capture_output=True,
+            timeout=10
+        )
         return result.returncode == 0
-    except:
+    except Exception:
         return False
 
+
 def encrypt_with_tpm(data):
-    """Criptografa dados usando TPM (simulado ou real)"""
     try:
         if isinstance(data, str):
             data = data.encode()
-        
-        # Tentar criptografia real com TPM
+
         if check_tpm():
             print("🔐 Usando TPM real para criptografia")
-            
-            # Criar contexto primário
+
             primary_ctx = "/tmp/primary.ctx"
-            result = subprocess.run([
-                'tpm2_createprimary', 
+            aes_pub = "/tmp/aes.pub"
+            aes_priv = "/tmp/aes.priv"
+            aes_ctx = "/tmp/aes.ctx"
+            input_file = "/tmp/tpm_input.bin"
+            output_file = "/tmp/tpm_output.bin"
+
+            cleanup_files = [primary_ctx, aes_pub, aes_priv, aes_ctx, input_file, output_file]
+
+            create_primary = subprocess.run([
+                'tpm2_createprimary',
                 '--tcti', 'device:/dev/tpmrm0',
-                '-c', primary_ctx, 
-                '-C', 'o', 
+                '-C', 'o',
+                '-c', primary_ctx,
                 '-Q'
             ], capture_output=True, timeout=30)
-            
-            if result.returncode == 0:
-                # Criptografar dados
-                input_file = "/tmp/tpm_input.bin"
-                output_file = "/tmp/tpm_output.bin"
-                
-                with open(input_file, 'wb') as f:
-                    f.write(data)
-                
-                encrypt_result = subprocess.run([
-                    'tpm2_encryptdecrypt',
+
+            if create_primary.returncode == 0:
+                create_aes = subprocess.run([
+                    'tpm2_create',
                     '--tcti', 'device:/dev/tpmrm0',
-                    '-c', primary_ctx,
-                    '-o', output_file,
-                    input_file
+                    '-C', primary_ctx,
+                    '-G', 'aes128cfb',
+                    '-u', aes_pub,
+                    '-r', aes_priv,
+                    '-Q'
                 ], capture_output=True, timeout=30)
-                
-                # Limpar arquivos temporários
-                for temp_file in [primary_ctx, input_file]:
-                    if os.path.exists(temp_file):
-                        os.unlink(temp_file)
-                
-                if encrypt_result.returncode == 0 and os.path.exists(output_file):
-                    with open(output_file, 'rb') as f:
-                        encrypted_data = f.read()
-                    os.unlink(output_file)
-                    print("✅ Criptografia TPM real bem-sucedida")
-                    return encrypted_data
-            
-            print("❌ Criptografia TPM real falhou, usando simulada")
-        
-        # Fallback para criptografia simulada
-        print("🔓 Usando criptografia simulada")
-        return base64.b64encode(data) + b"[TPM_SIMULATED]"
-        
-    except Exception as e:
-        print(f"❌ Erro na criptografia: {e}")
-        return base64.b64encode(data) + b"[ERROR]"
 
-def main():
-    print("🚀 VAULT INITIALIZER - DEBIAN (CORRIGIDO)")
-    print("==========================================")
-    
-    vault_url = os.getenv('VAULT_ADDR', 'http://vault:8200')
-    output_dir = "/app/tpm-data"
-    
-    print(f"📍 Vault URL: {vault_url}")
-    print(f"📁 Output dir: {output_dir}")
-    
-    # Criar diretório
-    os.makedirs(output_dir, exist_ok=True)
-    print("✅ Diretório preparado")
-    
-    # Verificar TPM
-    if check_tpm():
-        print("✅ TPM operacional")
-    else:
-        print("❌ TPM não disponível, usando modo simulado")
-    
-    # Aguardar Vault
-    print("⏳ Aguardando Vault...")
-    for i in range(30):
-        try:
-            response = requests.get(f"{vault_url}/v1/sys/health", timeout=5)
-            if response.status_code in [200, 501, 503]:
-                print("✅ Vault está respondendo")
-                break
-        except:
-            if i % 5 == 0:
-                print(f"   ... ainda aguardando ({i*2}s)")
-        time.sleep(2)
-    else:
-        print("❌ Timeout aguardando Vault")
-        sys.exit(1)
-    
-    # SEMPRE gerar arquivos, mesmo que Vault já esteja inicializado
-    print("🚀 Gerando arquivos TPM...")
-    
-    # Em modo dev, usar token padrão e chaves simuladas
-    root_token = "root"  # Token padrão do modo dev
-    keys = ["dev-unseal-key-1", "dev-unseal-key-2", "dev-unseal-key-3"]
-    
-    # Criptografar e salvar root token
-    encrypted_token = encrypt_with_tpm(root_token)
-    if encrypted_token:
-        with open(f"{output_dir}/root_token.enc", 'wb') as f:
-            f.write(encrypted_token)
-        print("✅ Token root criptografado salvo")
-        
-        # Salvar também em claro para referência
-        with open(f"{output_dir}/root_token.txt", 'w') as f:
-            f.write(root_token)
-    
-    # Criptografar e salvar chaves de unseal
-    for i, key in enumerate(keys):
-        encrypted_key = encrypt_with_tpm(key)
-        if encrypted_key:
-            with open(f"{output_dir}/unseal_key_{i}.enc", 'wb') as f:
-                f.write(encrypted_key)
-            print(f"✅ Chave {i} criptografada salva")
-            
-            # Salvar também em claro para referência
-            with open(f"{output_dir}/unseal_key_{i}.txt", 'w') as f:
-                f.write(key)
-    
-    print("🎉 Processo concluído com sucesso!")
-    
-    # Listar arquivos gerados
-    print("\n📋 ARQUIVOS GERADOS:")
-    for file in Path(output_dir).iterdir():
-        size = file.stat().st_size
-        print(f"   📄 {file.name} ({size} bytes)")
+                if create_aes.returncode == 0:
+                    load_aes = subprocess.run([
+                        'tpm2_load',
+                        '--tcti', 'device:/dev/tpmrm0',
+                        '-C', primary_ctx,
+                        '-u', aes_pub,
+                        '-r', aes_priv,
+                        '-c', aes_ctx,
+                        '-Q'
+                    ], capture_output=True, timeout=30)
 
-if __name__ == '__main__':
-    main()
+                    if load_aes.returncode == 0:
+                        with open(input_file, 'wb') as f:
+                            f.write(data)
+
+                        encrypt_result = subprocess.run([
+                            'tpm2_encryptdecrypt',
+                            '--tcti', 'device:/dev/tpmrm0',
+                            '-c', aes_ctx,
+                            '-o', output_file,
+                            input_file
+                        ], capture_output=True, timeout=30)
+
+                        if encrypt_result.returncode == 0 and os.path.exists(output_file):
+                            with open(output_file, 'rb') as f:
+                                encrypted_data = f.read()
+
+                            for temp_file in cleanup_files:
+                                if os.path.exists(temp
