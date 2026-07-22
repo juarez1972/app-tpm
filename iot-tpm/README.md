@@ -35,7 +35,7 @@
 
 - TPM 2.0-based hardware identity (sealed keys bound to PCR registers)
 - Support for two communication protocols: **REST API** (HTTPS) and **MQTT** (TLS)
-- Automatic unsealing and startup via `unseal_and_start.py`
+- Per-device provisioning via `scripts/init_device.sh` (seals the TOTP secret in the TPM and registers it in Vault)
 - Containerized deployment for both server and client components
 
 **Use case:** Edge devices (e.g., Raspberry Pi with TPM 2.0) that must authenticate to a backend server at boot time, without a password prompt or human operator.
@@ -51,15 +51,15 @@
 │  ┌──────────────────┐        ┌───────────────────────────────┐  │
 │  │    TPM 2.0        │        │      client-iot/              │  │
 │  │  ┌─────────────┐ │        │  ┌─────────────────────────┐  │  │
-│  │  │ sealed_key  │ │◄──────►│  │  client_rest_api/        │  │  │
-│  │  │  .pub/.priv │ │        │  │  client_iot.py           │  │  │
-│  │  └─────────────┘ │        │  └─────────────────────────┘  │  │
-│  │                  │        │  ┌─────────────────────────┐  │  │
+│  │  │ sealed OTP  │ │◄──────►│  │  client_rest_api/        │  │  │
+│  │  │  secret     │ │        │  │  client_iot.py           │  │  │
+│  │  │ (SRK-sealed)│ │        │  └─────────────────────────┘  │  │
+│  │  └─────────────┘ │        │  ┌─────────────────────────┐  │  │
 │  └──────────────────┘        │  │  client_mqtt/            │  │  │
 │                              │  │  client_mqtt.py          │  │  │
 │  ┌──────────────────┐        │  └─────────────────────────┘  │  │
-│  │ unseal_and_       │        └───────────────────────────────┘  │
-│  │ start.py          │                                           │
+│  │ scripts/          │        └───────────────────────────────┘  │
+│  │ init_device.sh    │  (provision: seal in TPM + register Vault) │
 │  └──────────────────┘                                           │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -90,8 +90,6 @@
 
 ```
 iot-tpm/
-├── unseal_and_start.py          # Entry point: unseals TPM key and launches client
-├── Dockerfile                   # Container image for the IoT agent
 ├── README.md
 │
 ├── client-iot/
@@ -141,8 +139,7 @@ iot-tpm/
 
 | Path | Status | Notes |
 |---|---|---|
-| `iot-tpm/sealed_key.pub` | **Not versioned** | Generated locally by the TPM seal operation |
-| `iot-tpm/sealed_key.priv` | **Not versioned** | Generated locally by the TPM seal operation |
+| `client-iot/*/tpm-data/<device_id>_otp.enc.{pub,priv}` | **Not versioned** | Per-device TOTP secret sealed in the TPM by `scripts/init_device.sh` |
 | `iot-tpm/certs/` | **Not versioned / planned** | Runtime TLS certificates |
 | `iot-tpm/data/` | **Not versioned / planned** | Runtime data storage |
 | `iot-tpm/logs/` | **Not versioned / planned** | Runtime logs |
@@ -210,17 +207,24 @@ cd iot-tpm/client-iot/client_rest_api/app/certs/
 python gerar_certificados.py
 ```
 
-### 5.4 Seal the TPM key
+### 5.4 Provision the device (seal the TOTP secret in the TPM)
+
+Provisioning is handled per device by `scripts/init_device.sh`. It generates a
+random Base32 TOTP secret, **seals it in the device's TPM** under the persistent
+SRK (`0x81010001`) as `tpm-data/<device_id>_otp.enc.{pub,priv}`, and **registers
+the same secret in the server's Vault** (`secret/data/tpm-verified/iot/devices/<device_id>`).
 
 ```bash
-cd iot-tpm/
-# Create primary key and seal private key to current PCR state
-tpm2_createprimary -C e -g sha256 -G ecc -c primary.ctx
-tpm2_create -G rsa2048 -u sealed_key.pub -r sealed_key.priv -C primary.ctx \
-    -L "pcr:sha256:0,1,2,3,4,7"
+cd iot-tpm/client-iot/client_rest_api/   # ou client_mqtt/
+DEVICE_ID=device-001 \
+  VAULT_ADDR=http://<server-ip>:8200 VAULT_TOKEN=<app_token> \
+  ./scripts/init_device.sh
 ```
 
-> `sealed_key.pub` and `sealed_key.priv` are generated locally and **must not be committed to version control**.
+> The plaintext secret never touches disk. The sealed `.pub/.priv` files are
+> generated locally and **must not be committed to version control**. See
+> [Section 8.1.1](#811-device-secret-lifecycle-totp--vault--tpm) for the full
+> lifecycle.
 
 ### 5.5 Configure environment variables
 
@@ -262,17 +266,18 @@ MQTT_BROKER=192.168.1.100           # cliente MQTT (porta 8883)
 
 All commands below assume the working directory is `iot-tpm/` unless otherwise stated.
 
-### 6.1 Unseal and start (recommended entry point)
+### 6.1 Recommended order
 
-```bash
-cd iot-tpm/
-python unseal_and_start.py
-```
-
-This script:
-1. Instructs the TPM to unseal `sealed_key.priv` using the current PCR values.
-2. Launches the appropriate client (REST or MQTT, depending on configuration).
-3. If unsealing fails (PCR mismatch), the script exits with an error — no credentials are exposed.
+1. **Provision the device once** (`scripts/init_device.sh`) — see
+   [Section 5.4](#54-provision-the-device-seal-the-totp-secret-in-the-tpm). This
+   seals the TOTP secret in the TPM and registers it in Vault.
+2. **Start the server** for the chosen protocol —
+   [REST (§6.2)](#62-rest-api-server) or [MQTT (§6.3)](#63-mqtt-server-mosquitto--subscriber).
+3. **Start the client** — [REST (§6.4)](#64-rest-api-client) or
+   [MQTT (§6.5)](#65-mqtt-client). At startup the client unseals the secret from
+   the TPM into RAM and begins the TOTP loop. If the unseal fails (PCR mismatch
+   or wrong hardware), the client exits with an error — no credentials are
+   exposed.
 
 ### 6.2 REST API server
 
@@ -414,22 +419,6 @@ cd iot-tpm/client-iot/client_mqtt/
 docker compose --profile arm64 up --build
 ```
 
-### 6.6 Full IoT agent (Docker)
-
-The root-level `Dockerfile` packages the entire IoT agent:
-
-```bash
-cd iot-tpm/
-docker build -t iot-tpm-agent .
-docker run --rm \
-  --device /dev/tpm0 \
-  --device /dev/tpmrm0 \
-  -v "$(pwd)/sealed_key.pub:/app/sealed_key.pub:ro" \
-  -v "$(pwd)/sealed_key.priv:/app/sealed_key.priv:ro" \
-  --env-file .env \
-  iot-tpm-agent
-```
-
 ---
 
 ## 7. Communication Protocols
@@ -542,7 +531,7 @@ seed handled as follows:
 | Firmware tampering | PCR-based sealing detects measurement changes |
 | Replay attacks | Challenge-response with nonces; TLS record layer |
 | MITM | mTLS (REST) / TLS with client certificates (MQTT) |
-| Credential exposure | `.env` and `sealed_key.*` are unversioned and never committed |
+| Credential exposure | `.env` and the sealed `tpm-data/*_otp.enc.*` files are unversioned and never committed |
 
 ### 8.3 Zero Trust Assumptions
 

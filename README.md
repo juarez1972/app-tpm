@@ -139,8 +139,7 @@ app-tpm/
 │   │       ├── mosquitto.conf
 │   │       ├── server_mqtt.py
 │   │       └── requirements.txt
-│   ├── Dockerfile               # IoT container entrypoint (TPM + Twingate)
-│   └── unseal_and_start.py      # TPM unseal → starts Twingate client (ZTNA)
+│   └── (per-protocol clients/servers, see iot-tpm/README.md)
 │
 ├── ztna/               # ZTNA PoC with OpenZiti + Keycloak (Layer 3)
 │   ├── docker-compose.yml
@@ -472,21 +471,21 @@ nIA agent for IoT devices (Raspberry Pi 4/5, ARM64 Yocto) as described in Sectio
 # From the repository root, enter the iot-tpm module
 cd iot-tpm/
 
-# 1. TPM key unseal and Twingate client initialization (ZTNA)
-#    Executed automatically by the container via ENTRYPOINT
-docker build -t iot-tpm-client .
-docker run --rm --privileged --device /dev/tpmrm0 iot-tpm-client
+# 1. Provision the device once: seal the TOTP secret in the TPM + register it in Vault
+cd client-iot/client_rest_api/
+DEVICE_ID=device-001 VAULT_ADDR=http://<server-ip>:8200 VAULT_TOKEN=<app_token> \
+  ./scripts/init_device.sh
 
-# 2. Start the REST API server
-cd server/server_rest_api/
+# 2. Start the REST API server (reads the secret from Vault by device_id)
+cd ../../server/server_rest_api/
 docker compose up --build -d
 
-# 3. Run the REST client (requires an active TPM on the host)
-cd ../../
-pip install -r client-iot/client_rest_api/requirements.txt
-python client-iot/client_rest_api/client_iot.py
+# 3. Run the REST client (unseals the secret from the TPM into RAM, TOTP loop)
+cd ../../client-iot/client_rest_api/
+pip install -r requirements.txt
+DEVICE_ID=device-001 API_URL=http://<server-ip>:5000 python client_iot.py
 
-# MQTT alternative (low-bandwidth IoT)
+# MQTT alternative (low-bandwidth IoT) — paths relative to iot-tpm/
 pip install -r client-iot/client_mqtt/requirements.txt
 python client-iot/client_mqtt/client_mqtt.py
 
@@ -494,7 +493,7 @@ python client-iot/client_mqtt/client_mqtt.py
 python server/server_mqtt/server_mqtt.py
 ```
 
-> The IoT client verifies the TPM via `tpm2_getrandom` before authenticating. If the TPM is not operational, authentication is aborted — the expected behavior under the two-channel model (Section VI.D). `unseal_and_start.py` is the Docker entrypoint that unseals the service key via TPM and starts the Twingate client before any communication occurs.
+> The IoT client verifies the TPM via `tpm2_getrandom` before authenticating. If the TPM is not operational, authentication is aborted — the expected behavior under the two-channel model (Section VI.D). The per-device TOTP secret is **sealed in the client's TPM** (provisioned by `scripts/init_device.sh`) and **registered in the server's Vault**; the client unseals it into RAM at startup and authenticates via time-based OTP over REST/MQTT.
 
 ### 6.4 ZTNA with OpenZiti and Keycloak (ztna/)
 
