@@ -31,15 +31,17 @@ This module implements **Hardware Auto-Unseal for HashiCorp Vault** using a TPM 
 
 ## 1. Overview
 
-`vault-tpm` addresses the **Secret Zero problem** in Infrastructure as Code: how to bootstrap secret management without storing an initial plaintext credential anywhere. The solution anchors the Vault unseal key inside a TPM 2.0 — a dedicated tamper-resistant chip that can only release the key when PCR measurements match the expected, untampered boot state.
+`vault-tpm` addresses the **Secret Zero problem** in Infrastructure as Code: how to bootstrap secret management without storing an initial plaintext credential anywhere. The solution seals the Vault unseal keys inside a TPM 2.0 — a dedicated tamper-resistant chip — so the keys never touch disk in plaintext and can only be recovered on the same host TPM that sealed them.
 
 **Key capabilities:**
 
-- TPM 2.0-based hardware validation before every Vault unseal
-- Automated container orchestration: the TPM validator runs first, Vault only starts after the check passes
-- Web health endpoint (port 8080) served by `tpm-validator/tpm_validator.py` for external monitoring
-- Vault policies enforcing minimum-privilege access for any service interacting with secrets
-- Utility scripts for system status checks and integration testing
+- **Real Vault initialization** (`sys/init`, 5 shares / threshold 3) on first boot, run automatically only when Vault is not yet initialized
+- **TPM-sealed unseal keys**: each Shamir share and the root token are sealed under a persistent TPM SRK (`tpm2_create` / `tpm2_unseal`) — deterministic and recoverable across reboots
+- **Automatic auto-unseal** on every boot: keys are unsealed from the TPM and applied via the Vault REST API (`sys/unseal`) until the threshold is met
+- **Exponential backoff + jitter** while waiting for Vault and when applying unseal keys, with graceful handling of "Vault not ready yet"
+- **No plaintext secrets on disk** — only TPM-sealed `.enc` blobs (plus their `.pub`/`.priv`); no root token or unseal key is ever written in the clear
+- No cloud dependency and no `vault` binary required in the container — the initializer talks to Vault purely over its REST API
+- Continuous health endpoint (port 8080) served by `tpm-validator/tpm_validator.py` for external monitoring
 
 **Port summary:**
 
@@ -52,7 +54,7 @@ This module implements **Hardware Auto-Unseal for HashiCorp Vault** using a TPM 
 
 ## 2. Architecture
 
-The stack consists of three containers orchestrated by Docker Compose. The startup sequence enforces a strict dependency order: the TPM validator must pass before the vault initializer runs, and the vault initializer must complete successfully before Vault serves any requests.
+The stack consists of three containers orchestrated by Docker Compose. The dependency order is `vault` → `vault-initializer` → `tpm-validator`: Vault starts first (sealed), the initializer then performs init (if needed) and auto-unseal using TPM-sealed keys, and the validator runs continuously afterward to monitor health.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -72,35 +74,41 @@ The stack consists of three containers orchestrated by Docker Compose. The start
 │  │                       │     │                                │     │
 │  │  tpm_validator.py     │     │  vault_initializer.py          │     │
 │  │  health_check.py      │     │                                │     │
-│  │                       │     │  1. Validates TPM is alive     │     │
-│  │  • Monitors TPM state │     │  2. Encrypts unseal keys       │     │
-│  │  • Checks .enc files  │     │     with TPM → saves .enc      │     │
-│  │  • Checks Vault health│     │  3. Unseals Vault via PKCS#11  │     │
-│  │  • Exposes port 8080  │     │                                │     │
+│  │                       │     │  1. Waits for Vault (backoff)  │     │
+│  │  • Monitors TPM state │     │  2. If not initialized:        │     │
+│  │  • Checks .enc files  │     │     sys/init + seal keys->TPM  │     │
+│  │  • Checks Vault health│     │  3. Unseal keys from TPM ->    │     │
+│  │  • Exposes port 8080  │     │     sys/unseal (retry/backoff) │     │
 │  └───────────┬───────────┘     └───────────────┬───────────────┘     │
-│              │  health check                    │  init complete      │
-│              │                                  ▼                     │
+│              │  continuous                      │  reads/writes .enc  │
+│              │  monitoring                      ▼                     │
 │              │                    ┌─────────────────────────┐         │
 │              │                    │     HashiCorp Vault      │         │
 │              │                    │                          │         │
 │              └───────────────────►│  Sealed at boot          │         │
-│                 continuous        │  Unsealed only after     │         │
-│                 monitoring        │  TPM validation passes   │         │
+│                                   │  Unsealed by initializer │         │
+│                                   │  using TPM-sealed keys   │         │
 │                                   │                          │         │
 │                                   │  Port 8200               │         │
 │                                   └──────────────────────────┘         │
 └─────────────────────────────────────────────────────────────────────┘
 
 Boot sequence:
-  Boot → TPM Validation → Vault Init (encrypt + unseal) → Vault Operational
+  Boot → Vault (sealed) → Initializer (init if needed + unseal from TPM) → Vault Operational → Validator monitors
 ```
 
 **Startup sequence:**
 
-1. Docker Compose brings up `tpm-validator` first; it verifies TPM accessibility and health.
-2. `vault-init` starts next: `vault_initializer.py` encrypts Vault's unseal keys using the TPM and stores the resulting `.enc` files in the `tpm-data/` volume (not versioned).
-3. HashiCorp Vault starts and is unsealed using the TPM-decrypted key material.
-4. `tpm-validator` continues running, periodically checking the TPM state, `.enc` files, and Vault health, and exposing results on port 8080.
+1. Docker Compose starts `vault` first; it comes up **sealed** (and uninitialized on a fresh volume).
+2. `vault-initializer` runs `vault_initializer.py`, which:
+   - waits for Vault to answer `sys/health` using **exponential backoff + jitter**;
+   - checks `sys/seal-status`; if Vault is **not initialized**, runs `sys/init` (5 shares / threshold 3), seals each unseal key and the root token into the TPM (`.enc` blobs in `tpm-data/`, not versioned);
+   - if already initialized, **recovers the unseal keys from the TPM**;
+   - applies the keys via `sys/unseal` (with retry/backoff) until Vault is unsealed.
+   The container is one-shot (`restart: "no"`) and exits after Vault is operational.
+3. `tpm-validator` runs continuously, periodically checking TPM state, presence of `.enc` files, and Vault health, exposing results on port 8080.
+
+> **Note on the root token:** it is sealed into the TPM (`root_token.enc`) and never written to disk in plaintext. Recover it only on the host that owns the TPM. There is no `.txt` copy.
 
 ---
 
@@ -148,8 +156,7 @@ vault-tpm/
 | Docker Compose | v2.x | Required |
 | Python | 3.10+ | For running scripts outside containers |
 | TPM 2.0 | — | Physical chip (e.g., Infineon SLB9670) or software emulator (`swtpm`) |
-| `tpm2-tools` | 5.x | Must be installed on the host |
-| `tpm2-pytss` | latest | Python bindings for TPM 2.0 TSS |
+| `tpm2-tools` | 5.x | Installed in the initializer/validator images and used via CLI; the host must expose `/dev/tpmrm0` |
 
 **Operating system:** Linux (tested on Ubuntu 22.04 LTS).
 
@@ -201,9 +208,22 @@ vault policy write app-policy scripts/setup_vault_policies.hcl
 
 Policies follow the principle of least privilege: each service receives only the capabilities (`read`, `list`, `create`, `update`, or `delete`) it strictly requires on the paths it accesses.
 
-### 5.3 Development token
+### 5.3 Initializer configuration (`vault-init/vault_initializer.py`)
 
-In development mode (`VAULT_DEV_ROOT_TOKEN_ID=root`), the default Vault root token is `root`. **Remove dev mode and use TPM-only auto-unseal in any production deployment.**
+The initializer runs Vault in **production mode** (no `-dev`, no default `root` token). Its behavior is controlled by environment variables (all optional; sensible defaults shown):
+
+| Variable | Default | Description |
+|---|---|---|
+| `VAULT_ADDR` | `http://vault:8200` | Vault API address (internal network) |
+| `TPM_DATA_DIR` | `/app/tpm-data` | Directory for the TPM-sealed `.enc` blobs |
+| `TPM2TOOLS_TCTI` | `device:/dev/tpmrm0` | TPM TCTI (kernel resource manager) |
+| `TPM_SRK_HANDLE` | `0x81010001` | Persistent SRK handle used to seal/unseal keys |
+| `UNSEAL_KEY_SHARES` | `5` | Shamir shares generated at `sys/init` |
+| `UNSEAL_KEY_THRESHOLD` | `3` | Shares required to unseal |
+| `MAX_ATTEMPTS` | `30` | Attempts while waiting for Vault |
+| `BASE_DELAY` / `MAX_DELAY` | `2` / `60` | Exponential backoff bounds (seconds) |
+
+> If handle `0x81010001` is already used on your host TPM, set `TPM_SRK_HANDLE` to a free persistent handle.
 
 ---
 
@@ -222,7 +242,7 @@ cd app-tpm/vault-tpm
 docker-compose up -d
 ```
 
-Docker Compose starts the three services in dependency order: `tpm-validator` → `vault-init` → `vault`.
+Docker Compose starts the three services in dependency order: `vault` → `vault-initializer` → `tpm-validator`. On a fresh volume the initializer runs `sys/init` once, seals the keys into the TPM, and unseals Vault; on later boots it recovers the keys from the TPM and unseals automatically.
 
 ### 6.3 Follow startup logs
 
@@ -266,18 +286,21 @@ docker-compose down -v
 
 | Container | Image source | Port | Role |
 |---|---|---|---|
-| `vault` | `hashicorp/vault` | `8200` | Secret store — only starts after TPM validation |
-| `vault-init` | `vault-init/Dockerfile` | — | Encrypts unseal keys via TPM; initializes Vault |
+| `vault` | `hashicorp/vault` | `8200` (host `8201`) | Secret store; starts sealed, unsealed by the initializer |
+| `vault-initializer` | `vault-init/Dockerfile` | — | One-shot: init (if needed), seals keys into TPM, auto-unseals via API |
 | `tpm-validator` | `tpm-validator/Dockerfile` | `8080` | Continuous health monitor: TPM + `.enc` files + Vault |
 
 ### 7.2 `vault-init/vault_initializer.py`
 
-Orchestrates the secure initialization sequence:
+Orchestrates the secure init + auto-unseal sequence over the Vault REST API (no `vault` binary needed):
 
-1. Connects to the host TPM via `tpm2-pytss`.
-2. Generates Vault unseal keys and encrypts them using the TPM public key — the resulting `.enc` files are written to the `tpm-data/` volume.
-3. Unseals Vault by decrypting the key material inside the TPM (the plaintext key is never written to disk).
-4. In development mode, a plaintext `.txt` copy is also written for debugging. **Remove this in production.**
+1. **Verifies the TPM** is reachable (`tpm2_getrandom`); aborts if unavailable (no TPM = no key protection).
+2. **Waits for Vault** to answer `sys/health`, using exponential backoff + jitter, tolerating connection-refused / not-ready states.
+3. **Checks `sys/seal-status`.** If Vault is *not initialized*, calls `sys/init` (5 shares / threshold 3) and **seals** each unseal key and the root token into the TPM under the persistent SRK (`tpm2_create`), producing `.enc` marker files plus `.pub`/`.priv` blobs. If Vault *is* initialized, it **recovers** the unseal keys from the TPM (`tpm2_load` + `tpm2_unseal`).
+4. **Unseals Vault** by posting the recovered keys to `sys/unseal` until the threshold is met, retrying transient errors with backoff.
+5. Exits once Vault reports `sealed: false`. **No plaintext secrets are ever written** — there are no `.txt` copies.
+
+> **Why sealing, not `tpm2_encryptdecrypt`:** sealing under a *persistent* SRK is deterministic and recoverable across reboots. An ephemeral primary context (created and discarded per run) could not decrypt the data later, which is why the earlier approach could not support real auto-unseal.
 
 ### 7.3 `tpm-validator/tpm_validator.py`
 
@@ -382,13 +405,13 @@ The following paths are generated at runtime by the stack and are intentionally 
 
 | Path | Status | Notes |
 |---|---|---|
-| `tpm-data/` | **Not versioned — runtime** | Sealed unseal keys (`*.enc`) and root token generated by `vault_initializer.py`; created on first `docker-compose up` |
-| `tpm-data/secret` | **Not versioned — runtime** | Encrypted Vault unseal key |
-| `tpm-data/vault-root-key` | **Not versioned — runtime** | Encrypted Vault root token |
+| `tpm-data/` | **Not versioned — runtime** | TPM-sealed material generated by `vault_initializer.py`; created on first `docker-compose up` |
+| `tpm-data/unseal_key_*.enc` (+ `.pub`/`.priv`) | **Not versioned — runtime** | TPM-sealed Shamir unseal keys |
+| `tpm-data/root_token.enc` (+ `.pub`/`.priv`) | **Not versioned — runtime** | TPM-sealed Vault root token (no plaintext copy) |
 | `vault-data/` | **Not versioned — runtime** | Vault storage backend data; persists secrets between restarts |
-| `.env` | **Not versioned — planned** | Environment variables (Vault token, TPM paths, etc.) |
+| `.env` | **Not versioned — planned** | Environment variables (TPM handle, shares/threshold, backoff, etc.) |
 
-> **Never commit `tpm-data/` or `vault-data/` to version control.** Both directories contain cryptographic material. Ensure they are listed in `.gitignore`.
+> **Never commit `tpm-data/` or `vault-data/` to version control.** Both directories contain cryptographic material. Both are listed in `.gitignore`; if any files were tracked before that rule existed, untrack them with `git rm -r --cached tpm-data vault-data`.
 
 ---
 
@@ -406,13 +429,13 @@ listener "tcp" {
 }
 ```
 
-### Removing development mode
+### Production mode (no dev token)
 
-The `vault-init` container uses `VAULT_DEV_ROOT_TOKEN_ID=root` for local testing. In production:
+The stack runs Vault in **server/production mode** — there is no `-dev` flag and no default `root` token. Initialization and unsealing are handled entirely by `vault_initializer.py`, with keys sealed in the host TPM. There are **no plaintext `.txt` key dumps**.
 
-1. Remove the `VAULT_DEV_ROOT_TOKEN_ID` environment variable from `docker-compose.yml`.
-2. Remove any plaintext `.txt` key dumps in `vault_initializer.py`.
-3. Use Vault's native auto-unseal via PKCS#11 pointing to the TPM.
+### Optional: bind unseal to boot state (PCR policy)
+
+To mitigate evil-maid / offline-tamper scenarios, the seal step can be extended with a **PCR policy** (e.g. `sha256:0,2,4,7`) so `tpm2_unseal` only succeeds when the measured boot state matches. This makes unseal fail after firmware/kernel changes until the blobs are re-sealed — a deliberate trade-off. (Not enabled by default in `vault_initializer.py`.)
 
 ### Software TPM (swtpm) for CI/CD
 
@@ -423,6 +446,8 @@ mkdir /tmp/mytpm
 swtpm socket --tpmstate dir=/tmp/mytpm --tpm2 --ctrl type=unixio,path=/tmp/mytpm.sock &
 export TPM2TOOLS_TCTI="swtpm:path=/tmp/mytpm.sock"
 ```
+
+The initializer honors `TPM2TOOLS_TCTI`, so pointing it at the emulator lets you exercise the full seal/unseal flow in CI without physical hardware.
 
 
 *Part of the [app-tpm](https://github.com/juarez1972/app-tpm) project — PPGIa/PUCPR, Brazil.*
