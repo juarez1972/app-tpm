@@ -7,6 +7,11 @@
 %%  (https://github.com/juarez1972/app-tpm): Twingate ZTNA, TOTP-over-TPM
 %%  IoT agent, Vault TPM auto-unseal, and LLM red-team pentest module.
 %%
+%%  REVISION (July 2026): new Background and Related Work section;
+%%  expanded bibliography (57 entries);
+%%  Threats to Validity subsection; hardware side-channel discussion;
+%%  continuous-attestation roadmap. Bibliography: references.bib.
+%%
 %%  Compile with:  pdflatex hybrid_zt_nia.tex  (x2, for cross-refs)
 %%  Requires the IEEEtran document class (texlive-publishers).
 %%=====================================================================
@@ -90,7 +95,7 @@ infrastructure, (ii) \emph{secret-retrieval latency} on the hot path, and
 (iii) resistance to an on-premises Large-Language-Model (LLM) red-team mapped
 to MITRE ATT\&CK. We further contribute a \emph{proposed security-test suite}
 that turns the ad-hoc red-team into a repeatable regression gate executed
-after each \ttcmd{terraform apply}. Measured software-path costs (TOTP
+after each \texttt{terraform apply}. Measured software-path costs (TOTP
 generation and cached seed retrieval) are sub-25 microseconds; the hardware
 path adds a bounded, single-digit-to-tens-of-milliseconds overhead while
 reducing Vault recovery time objective (RTO) from minutes to milliseconds.
@@ -230,6 +235,7 @@ the clear (Section~\ref{sec:envelope}).
 \end{enumerate}
 
 The remainder of the paper is organized as follows.
+Section~\ref{sec:related} reviews background and related work.
 Section~\ref{sec:threat} states the threat model.
 Section~\ref{sec:arch} describes the architecture and its mapping to the public
 reference implementation.
@@ -238,9 +244,103 @@ mechanism by which the OTP seed is sealed and retrieved.
 Section~\ref{sec:tests} proposes the security-test suite.
 Section~\ref{sec:eval} reports the simulation-based evaluation, provisioning
 time, and secret-retrieval latency.
-Section~\ref{sec:disc} discusses limitations and an additional operational
-point (supply-chain and reproducibility).
+Section~\ref{sec:disc} discusses limitations, threats to validity, and an
+additional operational point (supply-chain and reproducibility).
 Section~\ref{sec:concl} concludes.
+
+%%---------------------------------------------------------------------
+\section{Background and Related Work}\label{sec:related}
+%%---------------------------------------------------------------------
+
+\subsection{Zero Trust Architectures}
+Zero Trust replaces implicit network trust with per-request, identity-centric
+authorization---a model pioneered by Google's BeyondCorp initiative
+\cite{ward2014beyondcorp}, codified by NIST SP~800-207 \cite{nist800207}, and
+recently complemented by the practical implementation guidance of NIST
+SP~1800-35 \cite{nist1800_35}. Comprehensive surveys chart the maturation of
+the model and its open challenges \cite{syed2022ztasurvey,he2022ztasurvey,
+gambo2025ztaslr}, the difficulties of migrating legacy enterprises
+\cite{teerakanok2021}, and its instantiation in network-centric and
+IoT/6G-centric scenarios \cite{dhiman2024zerotrust,nahar2024zta6g}. Our work
+follows this line but targets the \emph{non-interactive} corner case, where
+neither interactive MFA nor user-driven posture checks are available.
+
+\subsection{Secret Management and the Secret Zero Problem}
+Empirical studies quantify how often static credentials leak from software
+artifacts: Meli \emph{et al.} found secrets leaking from over $100{,}000$
+public GitHub repositories, with thousands of new leaks every day
+\cite{meli2019git}; automated detectors confirm the prevalence of plaintext
+passwords in public repositories \cite{feng2022password}, and curated corpora
+such as SecretBench \cite{basak2023secretbench} enable systematic study of the
+phenomenon. Practitioner-focused work catalogs secret-management practices and
+their pitfalls in software artifacts and IaC
+\cite{basak2022,rahman2021,patel2025}, and zero-trust CI/CD frameworks address
+the multi-tenant pipeline setting \cite{anuganti2025}. Software vaults
+\cite{hashivault2024} centralize secrets but leave the bootstrap
+credential---Secret Zero---unsolved \cite{oliveira2024}. A complementary
+industry answer is federated \emph{workload identity} (SPIFFE/SPIRE), which
+replaces static secrets with attested, short-lived identities in CI/CD
+pipelines \cite{avirneni2025spiffe} and agentic AI ecosystems
+\cite{pappu2025spiffeai}. These frameworks, however, root trust in
+platform-level assertions; we complement them by binding the identity seed to
+a \emph{discrete hardware anchor}, which extends the guarantee to
+resource-constrained IoT endpoints at the edge.
+
+\subsection{Hardware Trust Anchors and Remote Attestation}
+TPM-based roots of trust are standardized by the TCG \cite{tcg2019} and have
+been used to establish trust domains in IoT deployments
+\cite{faisal2020tpmiot,furtak2019securedomain}. TEEs strengthen the software
+side: SGX enclaves \cite{costan2016} run unmodified applications through
+library OSes such as Gramine \cite{tsai2017graphene}, and confidential VMs
+based on Intel TDX \cite{cheng2023} are served by slim guest kernels such as
+Gramine-TDX \cite{kuvaiskii2024gramine}, with independently benchmarked
+performance envelopes \cite{coppolino2025}. Attestation of such anchors is
+being standardized by the IETF RATS architecture \cite{rfc9334} and realized
+by systems work on universal cloud/edge attestation \cite{ott2023universal},
+TEE attestation mechanisms \cite{menetrey2022attestation}, ephemeral vTPMs
+for confidential VMs \cite{narayanan2023vtpm}, and production-grade continuous
+attestation with Keylime \cite{ruffin2025keylime}; recent efforts extend this
+to attested Kubernetes workers \cite{thijsman2024attestedk8s}, 5G network
+functions \cite{emran2025vnf}, and post-quantum IoT settings
+\cite{eckel2025pqattest}. Our design currently uses the TPM for sealing and
+keyed hashing, and SGX/TDX for isolation; integrating standards-based
+continuous attestation is a natural evolution discussed in
+Section~\ref{sec:disc}.
+
+\subsection{Attacks on Trust Anchors}
+Hardware anchors are not unassailable. TPM-FAIL recovered ECDSA private keys
+from CC-certified TPMs through remote timing side channels
+\cite{moghimi2020tpmfail}; cold-boot attacks recover keys from residual DRAM
+\cite{halderman2008}; and transient-execution attacks such as Foreshadow
+extracted SGX enclave secrets \cite{vanbulck2018foreshadow}.
+Section~\ref{sec:threat} scopes physical and microarchitectural vectors out of
+our software-adversary model, and Section~\ref{sec:disc} argues that our
+primitive choices (TPM sealing and keyed hashing, rather than TPM-resident
+ECDSA signing) reduce the surface exposed to the timing channels exploited by
+TPM-FAIL.
+
+\subsection{OTP-Based Authentication and IoT Transport Security}
+HOTP/TOTP \cite{rfc4226,rfc6238}, built on HMAC \cite{rfc2104}, remain the
+reference one-time-password constructions; our earlier work adapted them to
+non-interactive Vault authentication \cite{oliveira2024}. On the transport
+side, a large-scale analysis of real-world backends speaking IoT protocols
+found widespread insecure MQTT deployments where TLS terminates at
+intermediaries \cite{tagliaro2024backends}---precisely the exposure our
+on-the-wire HMAC envelope addresses (Section~\ref{sec:envelope})---and
+contemporary work explores stateful MQTT authentication with LLM-based
+intrusion detection \cite{jamil2026mqtt}.
+
+\subsection{LLM-Driven Offensive Security}
+Autonomous LLM penetration testing emerged with PentestGPT \cite{pentestgpt},
+early feasibility studies \cite{happe2023}, and AutoAttacker
+\cite{autoattacker}. The line has since matured into autonomous privilege
+escalation agents \cite{happe2025llmhackers}, end-to-end frameworks such as
+HackSynth \cite{muzsai2024hacksynth} and the multi-agent VulnBot
+\cite{kong2025vulnbot}, and dedicated benchmarks including AutoPenBench
+\cite{gioacchini2024autopenbench} and CyberSecEval~2
+\cite{bhatt2024cyberseceval2}. These works provide the methodological backdrop
+for our regression-style, MITRE-mapped red-team (Sections~\ref{sec:tests}
+and~\ref{sec:eval}).
 
 %%---------------------------------------------------------------------
 \section{Threat Model}\label{sec:threat}
@@ -248,7 +348,7 @@ Section~\ref{sec:concl} concludes.
 We assume a \emph{root-level software adversary}: an attacker who has achieved
 privileged code execution on a host but who cannot physically decap or
 glitch the TPM silicon. The adversary's goals and the corresponding MITRE
-ATT\&CK techniques are:
+ATT\&CK techniques \cite{mitre2024} are:
 \begin{itemize}
 \item \textbf{Credential extraction} --- reading secrets from memory, disk, or
 process space (T1003 OS Credential Dumping; T1552 Unsecured Credentials).
@@ -262,10 +362,12 @@ tactic TA0004).
 \item \textbf{Lateral movement} --- pivoting from a compromised host to another
 (T1021 Remote Services; tactic TA0008).
 \end{itemize}
-Physical attacks against the TPM (cold-boot, bus probing, decapping) are
-out of scope; we rely on the tamper-resistance properties of certified TPM~2.0
-devices \cite{tcg2019} and note the residual risk explicitly in
-Section~\ref{sec:disc}. Table~\ref{tab:related} situates this work against the
+Physical and microarchitectural attacks against the trust anchors
+themselves---cold-boot DRAM extraction \cite{halderman2008}, TPM timing side
+channels \cite{moghimi2020tpmfail}, and transient-execution attacks on SGX
+\cite{vanbulck2018foreshadow}---are out of scope; we rely on the
+tamper-resistance properties of certified TPM~2.0 devices \cite{tcg2019} and
+note the residual risk explicitly in Section~\ref{sec:disc}. Table~\ref{tab:related} situates this work against the
 closest prior art, including our own earlier method \cite{oliveira2024}.
 
 \begin{table*}[!t]
@@ -303,8 +405,10 @@ Cryptographic keys are generated inside the TPM with the \ttcmd{fixedtpm} and
 even under full OS compromise. Sealing binds material to Platform
 Configuration Registers (PCR~0 and~7) so that a tampered firmware or a
 disabled Secure Boot state prevents unsealing. For higher tiers, Intel SGX
-enclaves (via Gramine) and Intel TDX Trust Domains provide CPU-encrypted
-memory; these tiers are assigned automatically by IaC (Section~\ref{sec:impl}).
+enclaves \cite{costan2016} (via the Gramine library OS \cite{tsai2017graphene})
+and Intel TDX Trust Domains \cite{cheng2023,kuvaiskii2024gramine} provide
+CPU-encrypted memory; these tiers are assigned automatically by IaC
+(Section~\ref{sec:impl}).
 Concretely, the \ttcmd{critical} tier runs the \emph{Vault initializer}---the
 one component that briefly handles the unseal shares and root token (Secret
 Zero)---inside an SGX enclave built with Gramine. A signed manifest pins the
@@ -329,8 +433,8 @@ collapses the recovery time objective from a manual multi-minute unseal to a
 sub-second automated one.
 
 \subsection{Layer 3 --- Identity-Based Network Access (ZTNA)}
-The network layer is enforced by a \emph{Twingate connector} deployed
-on-premises as a Docker container. The connector makes only \emph{outbound}
+The network layer is enforced by a \emph{Twingate connector}
+\cite{twingate2024} deployed on-premises as a Docker container. The connector makes only \emph{outbound}
 connections to the Twingate relay, so \textbf{no inbound port is opened} on the
 production host. Internal services (Vault and the IoT server) are published as
 Twingate \emph{Resources}, reachable only by identities that satisfy an
@@ -416,7 +520,9 @@ credential at rest.
 \label{sec:envelope}
 Sending the bare TOTP code---even over TLS---exposes it wherever the transport
 is terminated (reverse proxies, MQTT brokers, TLS-inspecting middleboxes) and
-leaves a short replay window. Following the OTP-hardening line of
+leaves a short replay window; large-scale measurements of real-world IoT
+backends show that such intermediary-terminated deployments are the norm
+rather than the exception \cite{tagliaro2024backends}. Following the OTP-hardening line of
 Oliveira \emph{et al.}~\cite{oliveira2024}, the released agents therefore never
 transmit the code in the clear: the client wraps it in a keyed \emph{HMAC
 envelope} whose key is the very TOTP seed already anchored in the TPM
@@ -424,7 +530,8 @@ envelope} whose key is the very TOTP seed already anchored in the TPM
 \begin{equation}\label{eq:envelope}
 M = \mathrm{HMAC\text{-}SHA256}\big(K,\; \mathrm{OTP} \,\|\, n \,\|\, \tau\big),
 \end{equation}
-and the client sends $\langle n, \tau, M\rangle$ instead of $\mathrm{OTP}$.
+following the standard keyed-hash construction \cite{rfc2104}, and the client
+sends $\langle n, \tau, M\rangle$ instead of $\mathrm{OTP}$.
 The server recomputes $M$ for each code valid in its $\pm1$-step window and
 accepts only on a constant-time match (\ttcmd{hmac.compare\_digest}). A
 single-use nonce cache rejects replays and a bounded $|\,\mathit{now}-\tau\,|$
@@ -492,7 +599,7 @@ critical & vTPM + TDX & TDX Trust Dom.& vTPM PCR \\
 %%---------------------------------------------------------------------
 A recurring weakness of nIA deployments is that security is validated once, by
 hand, and then drifts. We therefore propose a \emph{repeatable} test suite that
-runs after every \ttcmd{terraform apply} and gates promotion to production.
+runs after every \texttt{terraform apply} and gates promotion to production.
 The suite has two families: (A) automated network/vulnerability testing driven
 by the repository's \ttcmd{pentest/} module, and (B) functional
 security-invariant tests of the TPM$+$Vault$+$ZTNA flow. Table~\ref{tab:tests}
@@ -545,7 +652,9 @@ were directly measured on the prototype are marked \textbf{(m)}; analytically
 estimated values are marked \textbf{(e)}.
 
 \subsection{Automated Adversary Simulation via Local LLM Agents}
-Following autonomous pen-testing frameworks \cite{pentestgpt,happe2023,autoattacker},
+Following autonomous pen-testing frameworks and benchmarks
+\cite{pentestgpt,happe2023,autoattacker,happe2025llmhackers,muzsai2024hacksynth,
+gioacchini2024autopenbench,kong2025vulnbot,bhatt2024cyberseceval2},
 we drive a local LLM adversary (Llama~3.1 via Ollama) prompt-engineered for
 offensive tasks, with two tools (\ttcmd{http\_request}, \ttcmd{encode\_payload}),
 a 5--10 turn limit, and $n{=}100$ independent runs per technique for
@@ -701,11 +810,35 @@ directly (Table~\ref{tab:secret}).
 %%---------------------------------------------------------------------
 \subsection{Limitations of the LLM Red-Team}
 The LLM adversary provides reproducible, MITRE-mapped regression testing after
-each \ttcmd{terraform apply}, but (i) its effectiveness depends on prompt
+each \texttt{terraform apply}, but (i) its effectiveness depends on prompt
 quality and a two-tool set; (ii) the 5--10 turn limit constrains multi-step
 chains; (iii) a 0\% bypass at $n{=}100$ carries a 95\% Wilson upper bound of
 3.6\%, not absolute zero; and (iv) it augments rather than replaces expert
-human red-teams.
+human red-teams. Moreover, our results reflect a single adversary model
+(Llama~3.1); recent benchmarks show that offensive capability varies
+substantially across models \cite{muzsai2024hacksynth,gioacchini2024autopenbench,
+bhatt2024cyberseceval2}, so replicating the campaign with heterogeneous LLMs
+would strengthen external validity.
+
+\subsection{Threats to Validity}
+\textbf{Construct validity.} Part of Table~\ref{tab:perf} is analytically
+estimated (marked \textbf{(e)}) from vendor documentation and independent TEE
+benchmarks \cite{coppolino2025,kuvaiskii2024gramine}; promoting these entries
+to direct measurements on SGX/TDX hardware is planned.
+\textbf{Internal validity.} The replay cache of the HMAC envelope
+(Section~\ref{sec:envelope}) is an in-memory, per-process structure; a
+multi-worker deployment requires a shared store (e.g., Redis), and binding the
+envelope to the transport channel (e.g., via TLS exporter material) would
+further exclude cross-connection replay.
+\textbf{External validity.} The evaluation ran on a single institutional
+testbed (PPGIA96/PPGIA95) with one LLM adversary; other stacks, workloads, and
+adversary models may behave differently.
+\textbf{Residual hardware risk.} TPM-FAIL-style timing attacks target
+TPM-resident ECDSA signing \cite{moghimi2020tpmfail}; our design uses the TPM
+only for sealing and keyed hashing, which reduces---but does not
+eliminate---that surface. Transient-execution attacks on SGX
+\cite{vanbulck2018foreshadow} are mitigated by current microcode and by the
+TDX-based tier \cite{cheng2023}.
 
 \subsection{Two-Channel MFA for IoT}
 Unattended devices combine a TPM-bound identity (Channel~1, non-cloneable) with
@@ -723,10 +856,26 @@ the deployment is reproducible and auditable, and the security-test suite of
 Section~\ref{sec:tests} runs against the exact provisioned artifact rather than
 a hand-configured snapshot. This closes a common gap in nIA systems, where the
 running configuration diverges silently from the reviewed one. We recommend
-signing images and Terraform plans (e.g., Sigstore/cosign) and storing the
+signing images and Terraform plans with transparency-log-backed tooling such
+as Sigstore/cosign \cite{newman2022sigstore} and storing the
 attestations next to the TPM PCR quotes so that both the \emph{build} and the
 \emph{boot} of each host are independently verifiable---an avenue we leave for
 future work.
+
+\subsection{Toward Continuous, Standards-Based Attestation}
+The current design verifies platform state implicitly, through PCR-bound
+sealing at unseal time. A natural evolution is \emph{explicit, continuous}
+remote attestation following the IETF RATS architecture \cite{rfc9334}:
+agents such as Keylime already provide runtime integrity monitoring backed by
+TPM quotes \cite{ruffin2025keylime}, universal attestation layers unify
+heterogeneous TEE evidence \cite{ott2023universal,menetrey2022attestation},
+and ephemeral vTPMs bring equivalent guarantees to confidential VMs
+\cite{narayanan2023vtpm}. Feeding such evidence into the ZTNA policy engine
+would turn Layer~3 access decisions into attestation-gated ones, in line with
+emerging work on attested Kubernetes workers \cite{thijsman2024attestedk8s}
+and attested 5G network functions \cite{emran2025vnf}; post-quantum
+attestation schemes \cite{eckel2025pqattest} and stateful, LLM-assisted MQTT
+authentication \cite{jamil2026mqtt} chart the longer-term IoT roadmap.
 
 \subsection{Practical Considerations}
 Standard TPM~2.0 chips offer $\approx$10\,KB of NVRAM, requiring careful index
@@ -761,7 +910,7 @@ CNPq partially sponsored this work under grants 307706/2025-7 and 407879/2023-4.
 %% Bibliography (external BibTeX database: references.bib)
 %% Build sequence: pdflatex -> bibtex -> pdflatex -> pdflatex
 %%---------------------------------------------------------------------
-\nocite{*}   %% include all 23 entries from references.bib, even if not \cite'd
+%% All 57 entries are now cited explicitly in the text; \nocite{*} removed.
 \bibliographystyle{IEEEtran}
 \bibliography{references}
 
