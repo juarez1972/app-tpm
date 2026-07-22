@@ -392,11 +392,11 @@ Helper module called by `tpm_validator.py`. Encapsulates individual health-check
 
 ### 7.5 `scripts/setup_vault_policies.hcl`
 
-HCL policy definitions for minimum-privilege Vault access. Referenced in the root README (Section 6.2) as part of the broader secret lifecycle. Apply after initialization using the Vault CLI (see [Section 5.2](#52-access-policies----scriptssSetup_vault_policieshcl)).
+HCL policy definitions for minimum-privilege Vault access. Referenced in the root README (Section 6.2) as part of the broader secret lifecycle. Apply after initialization using the Vault CLI (see [Section 5.2](#52-access-policies--scriptssetup_vault_policieshcl)).
 
 ### 7.6 `vault-config.hcl`
 
-Vault server configuration file: defines the storage backend, TCP listener, and public API address. Mounted into the `vault` container at startup. See [Section 5.1](#51-vault-server----vault-confighcl) for details.
+Vault server configuration file: defines the storage backend, TCP listener, and public API address. Mounted into the `vault` container at startup. See [Section 5.1](#51-vault-server--vault-confighcl) for details.
 
 ### 7.7 Shell scripts
 
@@ -407,8 +407,8 @@ Vault server configuration file: defines the storage backend, TCP listener, and 
 | `setup_secret.sh` | Smoke-test: authenticates with the TPM-recovered token (prefers `app_token`, else root), then writes and reads back an example secret. No plaintext token on disk. |
 | `validate_system.sh` | Full system validation; authenticates with the TPM-recovered token (no hardcoded token). |
 | `system_status.sh` | Queries and prints the health of all three containers, the TPM device, and Vault. |
-| `test_tpm_integration.sh` | End-to-end integration tests against the running stack — **requires a physical TPM (`/dev/tpmrm0`) and is not run in CI** (see [CI section](#tpm-integration-test-citesttpmintegrationswtpmsh)). |
-| `ci/test_seal_unseal.sh` | CI test (swtpm): init + seal/unseal + cross-boot recovery + root-token auth. See [CI section](#automated-ci-test-citestsealunsealsh). |
+| `test_tpm_integration.sh` | End-to-end integration tests against the running stack — **requires a physical TPM (`/dev/tpmrm0`) and is not run in CI** (see [CI section](#tpm-integration-test-citest_tpm_integration_swtpmsh)). |
+| `ci/test_seal_unseal.sh` | CI test (swtpm): init + seal/unseal + cross-boot recovery + root-token auth. See [CI section](#automated-ci-test-citest_seal_unsealsh). |
 | `ci/test_tpm_integration_swtpm.sh` | CI test (swtpm): basic TPM ops + key ops, without docker-compose or a physical TPM. |
 
 ---
@@ -469,7 +469,7 @@ For CI (and any VM without a physical TPM), the equivalent checks run against th
 ./ci/test_tpm_integration_swtpm.sh       # basic TPM ops + key ops (createprimary/create/sign)
 ```
 
-Both run automatically via GitHub Actions — see [`.github/workflows/ci-seal-unseal.yml`](../.github/workflows/ci-seal-unseal.yml) and the [Software TPM (swtpm) CI section](#automated-ci-test-citestsealunsealsh).
+Both run automatically via GitHub Actions — see [`.github/workflows/ci-seal-unseal.yml`](../.github/workflows/ci-seal-unseal.yml) and the [Software TPM (swtpm) CI section](#automated-ci-test-citest_seal_unsealsh).
 
 ### 8.5 System-level validation
 
