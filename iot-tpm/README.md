@@ -69,18 +69,20 @@
 ┌─────────────────────┐         ┌─────────────────────────┐
 │  server_rest_api/   │         │    server_mqtt/          │
 │  server_rest_api.py │         │    server_mqtt.py        │
-│  main.py            │         │    mosquitto.conf        │
-│  (FastAPI/Uvicorn)  │         │    (Mosquitto broker +   │
-│                     │         │     Python subscriber)   │
+│  (FastAPI/Uvicorn)  │         │    mosquitto.conf        │
+│  reads secret from  │         │    (Mosquitto broker +   │
+│  Vault by device_id │         │     Python subscriber)   │
 └─────────────────────┘         └─────────────────────────┘
 ```
 
-**Authentication flow:**
+**Authentication flow (TOTP + Vault + TPM):**
 
-1. On boot, `unseal_and_start.py` instructs the TPM to unseal the private key (only possible if PCR values match the expected boot state).
-2. The client signs a challenge (or presents its TLS certificate derived from the sealed key) to the server.
-3. The server validates the signature / certificate chain and grants access.
-4. If PCR values have changed (e.g., due to firmware tampering), unsealing fails and the device cannot authenticate.
+1. **Provisioning** (once per device, `scripts/init_device.sh`): a per-device TOTP secret is generated, **sealed in the device's TPM** and **registered in the server's Vault** (`secret/data/tpm-verified/iot/devices/<device_id>`).
+2. **Client boot**: the client unseals the TOTP secret from the TPM into memory (only possible if PCR values match the expected boot state) and derives time-based codes.
+3. **Authentication**: the client sends its `device_id` + current TOTP code to the server (REST `POST /verify` or MQTT `iot/verify`).
+4. **Server**: reads the same secret from Vault by `device_id` and validates the code. If PCR/boot state changed, the TPM unseal fails and the device cannot authenticate.
+
+> Both sides must use the same `OTP_INTERVAL` (default 60 s).
 
 ---
 
@@ -94,7 +96,13 @@ iot-tpm/
 │
 ├── client-iot/
 │   ├── client_rest_api/
-│   │   ├── client_iot.py        # REST API client (HTTPS + TPM auth)
+│   │   ├── client_iot.py        # REST client (TOTP loop; secret unsealed from TPM)
+│   │   ├── scripts/
+│   │   │   └── init_device.sh   # Device provisioning: generate secret, seal in TPM, register in Vault
+│   │   ├── Dockerfile           # Container image for REST client
+│   │   ├── Dockerfile.arm64     # ARM64 variant (e.g., Raspberry Pi)
+│   │   ├── docker-compose.yml
+│   │   ├── .env.example         # Sample client configuration
 │   │   ├── requirements.txt
 │   │   └── app/
 │   │       └── certs/
@@ -114,9 +122,10 @@ iot-tpm/
     ├── gerar_certificados.py    # TLS cert generation for server (CA, server cert/key)
     │
     ├── server_rest_api/
-    │   ├── main.py              # Application entry point (Uvicorn startup)
-    │   ├── server_rest_api.py   # FastAPI route handlers
+    │   ├── server_rest_api.py   # FastAPI: /login + /verify, validates TOTP, reads secret from Vault
+    │   ├── Dockerfile
     │   ├── docker-compose.yml
+    │   ├── .env.example         # Sample server configuration (incl. Vault)
     │   └── requirements.txt
     │
     └── server_mqtt/
@@ -215,15 +224,36 @@ tpm2_create -G rsa2048 -u sealed_key.pub -r sealed_key.priv -C primary.ctx \
 
 ### 5.5 Configure environment variables
 
-Create `iot-tpm/.env` (unversioned):
+Each component ships an `.env.example`. Copy it to `.env` (unversioned) in the
+component directory and adjust:
+
+```bash
+# Servidor REST
+cp server/server_rest_api/.env.example server/server_rest_api/.env
+# Cliente REST
+cp client-iot/client_rest_api/.env.example client-iot/client_rest_api/.env
+# Servidor / cliente MQTT (equivalente)
+cp server/server_mqtt/.env.example server/server_mqtt/.env
+cp client-iot/client_mqtt/.env.example client-iot/client_mqtt/.env
+```
+
+Key variables (see each `.env.example` for the full list):
 
 ```dotenv
-SERVER_HOST=192.168.1.100
-SERVER_PORT=8443
-MQTT_BROKER_HOST=192.168.1.100
-MQTT_BROKER_PORT=8883
-TPM_PCR_BANK=sha256
-TPM_PCR_LIST=0,1,2,3,4,7
+# Cliente (REST e MQTT)
+DEVICE_ID=device-001
+OTP_INTERVAL=60              # DEVE ser igual no cliente e no servidor
+TPM_DATA_DIR=/app/tpm-data
+TPM_SRK_HANDLE=0x81010001
+
+# Servidor (REST e MQTT) — fonte primária dos segredos
+VAULT_ADDR=http://192.168.1.100:8200
+VAULT_TOKEN=<app_token>      # policy 'app-policy' do projeto vault-tpm
+VAULT_DEVICE_BASE=tpm-verified/iot/devices
+
+# Endpoints
+API_URL=http://192.168.1.100:5000   # cliente REST
+MQTT_BROKER=192.168.1.100           # cliente MQTT (porta 8883)
 ```
 
 ---
@@ -246,19 +276,29 @@ This script:
 
 ### 6.2 REST API server
 
+The API reads each device's TOTP secret from **HashiCorp Vault** (the
+`vault-tpm` project), keyed by `device_id`, and validates the code on
+`POST /verify`. Configure `VAULT_ADDR` / `VAULT_TOKEN` in `.env` (see
+`.env.example`). Without a reachable Vault it falls back to a single
+`OTP_SECRET` from `.env` (development only).
+
 #### Run directly
 
 ```bash
-cd iot-tpm/
-python server/server_rest_api/main.py
+cd iot-tpm/server/server_rest_api/
+cp .env.example .env    # ajuste VAULT_ADDR, VAULT_TOKEN, etc.
+python server_rest_api.py
 ```
 
 #### Run with Docker Compose
 
 ```bash
 cd iot-tpm/server/server_rest_api/
-docker-compose up --build
+docker compose up --build
 ```
+
+Endpoints: `GET /health`, `GET /status-vault`, `POST /login`
+(`{"device_id": "..."}`), `POST /verify` (`{"session_token": "...", "otp_code": "..."}`).
 
 ### 6.3 MQTT server (Mosquitto + subscriber)
 
@@ -284,9 +324,44 @@ docker compose up --build
 
 ### 6.4 REST API client
 
+> **Provision the device first** (same script as the MQTT client). The secret is
+> **sealed in the device's TPM** and **registered in the server's Vault** — it is
+> not kept in `.env` in production:
+>
+> ```bash
+> cd iot-tpm/client-iot/client_rest_api/
+> DEVICE_ID=device-001 \
+>   VAULT_ADDR=http://<server-ip>:8200 VAULT_TOKEN=<app_token> \
+>   ./scripts/init_device.sh
+> ```
+>
+> See [Section 8](#8-security-model) for the secret lifecycle.
+
+#### Run directly
+
 ```bash
-cd iot-tpm/
-python client-iot/client_rest_api/client_iot.py
+cd iot-tpm/client-iot/client_rest_api/
+DEVICE_ID=device-001 API_URL=http://<server-ip>:5000 python client_iot.py
+```
+
+The client unseals the secret from the TPM into memory, calls `POST /login`
+with its `device_id`, then posts a fresh TOTP code to `POST /verify` every
+`OTP_INTERVAL` seconds (default 60). If the TPM is unavailable it falls back to
+`OTP_SECRET` from `.env` (development only).
+
+#### Run with Docker Compose (x86_64)
+
+```bash
+cd iot-tpm/client-iot/client_rest_api/
+cp .env.example .env   # ajuste DEVICE_ID, API_URL, etc.
+docker compose --profile dev up --build
+```
+
+#### Run with Docker (ARM64 — e.g., Raspberry Pi)
+
+```bash
+cd iot-tpm/client-iot/client_rest_api/
+docker compose --profile arm64 up --build
 ```
 
 ### 6.5 MQTT client
@@ -363,22 +438,28 @@ docker run --rm \
 
 | Item | Value |
 |---|---|
-| Default port | `8443` |
-| TLS | Mutual TLS (mTLS) |
-| Authentication endpoint | `POST /auth` |
-| Payload | JSON with TPM-signed challenge |
+| Default port | `5000` (HTTP; use a TLS reverse proxy or `CA_CERT` for HTTPS) |
+| Endpoints | `POST /login`, `POST /verify`, `GET /health`, `GET /status-vault` |
+| MFA | TOTP (`pyotp`, `OTP_INTERVAL` seconds, default 60) |
+| Client secret source | Sealed in the device **TPM** (unsealed to RAM at start) |
+| Server secret source | **HashiCorp Vault** KV v2, keyed by `device_id` (fallback `.env`) |
 | Server framework | FastAPI + Uvicorn |
 
 **Authentication sequence:**
 
 ```
-Client                                 Server
-  │                                      │
-  │──── POST /auth {device_id, sig} ────►│
-  │                                      │ verify sig against TPM pub key
-  │◄─── 200 OK {token} ─────────────────│
-  │                                      │
+Device (client_iot.py)                 Server (server_rest_api.py)
+  |  unseal OTP secret from TPM          |  read OTP secret from
+  |  (RAM only)                          |  Vault by device_id
+  |---- POST /login {device_id} -------->|
+  |<--- 200 {session_token} -------------|
+  |-- POST /verify {token, otp_code} -->| totp.verify(otp_code)
+  |<- 200 {status: valid} --------------|  (401 + drops session if invalid)
+  |   (repeat every OTP_INTERVAL)        |
 ```
+
+> **Consistency requirement:** `OTP_INTERVAL` must match on client and server,
+> otherwise every code is rejected. Keep it identical in both `.env` files.
 
 ### 7.2 MQTT (TLS)
 
@@ -430,10 +511,10 @@ Keys are sealed against a set of PCR (Platform Configuration Register) values th
 
 If any of these values change (e.g., firmware update, Secure Boot disabled, or OS tampering), the TPM will refuse to unseal the key — the device loses the ability to authenticate until the key is re-sealed by an authorized operator.
 
-### 8.1.1 MQTT device secret lifecycle (TOTP + Vault + TPM)
+### 8.1.1 Device secret lifecycle (TOTP + Vault + TPM)
 
-For the MQTT flow, the shared secret is a per-device **TOTP** seed handled as
-follows:
+For both the REST and MQTT flows, the shared secret is a per-device **TOTP**
+seed handled as follows:
 
 1. **Provisioning** (`scripts/init_device.sh`, once per device): a random
    Base32 secret is generated in RAM, **sealed in the device's TPM** under the
@@ -442,11 +523,13 @@ follows:
    `secret/data/tpm-verified/iot/devices/<device_id>` (field `otp_secret`,
    covered by the `app-policy` from the `vault-tpm` project). The plaintext
    secret never touches disk.
-2. **Client runtime**: `client_mqtt.py` unseals the secret from the TPM into
-   memory (`tpm2_load` + `tpm2_unseal`) and derives TOTP codes. If PCR/boot
-   state changed, the unseal fails and the device cannot authenticate.
-3. **Server runtime**: `server_mqtt.py` reads the same secret from Vault by
-   `device_id`, caches it in memory, and validates each TOTP code.
+2. **Client runtime**: `client_iot.py` (REST) / `client_mqtt.py` (MQTT) unseals
+   the secret from the TPM into memory (`tpm2_load` + `tpm2_unseal`) and derives
+   TOTP codes. If PCR/boot state changed, the unseal fails and the device cannot
+   authenticate.
+3. **Server runtime**: `server_rest_api.py` (REST) / `server_mqtt.py` (MQTT)
+   reads the same secret from Vault by `device_id`, caches it in memory, and
+   validates each TOTP code.
 
 > The secret is never held in plaintext on disk on either side. The `.env`
 > `OTP_SECRET` is a **development-only** fallback for both components.
@@ -533,13 +616,21 @@ SSL: CERTIFICATE_VERIFY_FAILED
 
 **Solution:** Ensure `ca.crt` is correctly referenced in the client configuration and that the server certificate was signed by the same CA. Regenerate certificates if the CA has changed (see [Section 9](#9-certificate-generation)).
 
-### REST API 401 Unauthorized
+### REST API 401 Unauthorized (OTP inválido)
 
 **Possible causes:**
 
-1. TPM signature verification failed — check that `sealed_key.pub` matches the key used to sign the challenge.
-2. Challenge nonce expired — synchronize clocks between client and server (use NTP).
-3. mTLS client certificate not presented — verify `client_iot.py` is loading the correct certificate path.
+1. `OTP_INTERVAL` differs between client and server — it **must** be identical
+   on both sides, otherwise every TOTP code is rejected.
+2. Clock drift between client and server — synchronize clocks (use NTP). The
+   server tolerates ±1 window (`valid_window=1`), but larger drift fails.
+3. The client is using a different secret than the server — confirm the same
+   `device_id` and that `scripts/init_device.sh` sealed the secret in the TPM
+   **and** registered the same value in the server's Vault.
+
+> A `404` on `/login` means the `device_id` is not provisioned (no secret in
+> Vault and no `OTP_SECRET` fallback). A `403` on `/verify` means the session
+> token is unknown or was dropped after a previous invalid code.
 
 ### Docker permission denied on TPM device
 

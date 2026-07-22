@@ -1,16 +1,27 @@
-version: '3.8'
-
 services:
-  servidor-iot:
-    build: ./servidor
-    container_name: servidor_iot_api
+
+  # ── API REST (FastAPI) — validação OTP + Vault ───────────────────────────────
+  server-rest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: server-rest
+    restart: unless-stopped
     ports:
       - "5000:5000"
     env_file:
       - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - API_HOST=0.0.0.0
+      - API_PORT=5000
     extra_hosts:
+      # permite alcançar um Vault rodando no host durante o desenvolvimento
       - "host.docker.internal:host-gateway"
-    volumes:
-      - ./servidor:/app
-      - ./data/logs:/app/logs
-    restart: always
+    networks:
+      - rest-net
+
+networks:
+  rest-net:
+    name: iot-rest-net
+    driver: bridge

@@ -1,0 +1,56 @@
+services:
+
+  # ── Desenvolvimento local (x86_64) ───────────────────────────────────────────
+  # Uso: docker compose --profile dev up --build
+  # API_URL aponta para o servidor REST; ajuste em .env ou via extra_hosts.
+  client-rest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: client-rest
+    restart: unless-stopped
+    devices:
+      - "/dev/tpm0:/dev/tpm0"
+      - "/dev/tpmrm0:/dev/tpmrm0"     # resource manager do TPM (usado pelo tpm2-tools)
+    volumes:
+      - ./tpm-data:/app/tpm-data:ro   # blobs selados <device>_otp.enc.pub/.priv
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TPM_DATA_DIR=/app/tpm-data
+      - TPM2TOOLS_TCTI=device:/dev/tpmrm0
+    extra_hosts:
+      - "restserver.local:192.168.56.106"   # IP fixo do servidor — alterar se mudar
+    profiles: ["dev"]
+
+  # ── Alvo ARM64 (Raspberry Pi 4/5) ────────────────────────────────────────────
+  # Em host x86: requer QEMU + buildx configurados uma única vez:
+  #   docker run --privileged --rm tonistiigi/binfmt --install all
+  #   docker buildx create --use
+  # Em Raspberry Pi real: roda nativo sem emulação.
+  # Uso: docker compose --profile arm64 up --build
+  client-rest-arm64:
+    build:
+      context: .
+      dockerfile: Dockerfile.arm64
+    platform: linux/arm64
+    container_name: client-rest-arm64
+    restart: unless-stopped
+    devices:
+      - "/dev/tpm0:/dev/tpm0"
+      - "/dev/tpmrm0:/dev/tpmrm0"     # resource manager do TPM (usado pelo tpm2-tools)
+    volumes:
+      - ./tpm-data:/app/tpm-data:ro   # blobs selados <device>_otp.enc.pub/.priv
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TPM_DATA_DIR=/app/tpm-data
+      - TPM2TOOLS_TCTI=device:/dev/tpmrm0
+    extra_hosts:
+      - "restserver.local:192.168.56.106"   # IP fixo do servidor — alterar se mudar
+    profiles: ["arm64"]
+
+# Sem rede Docker compartilhada — cliente conecta ao servidor via rede física.
+# A porta 5000 da API está publicada no host do servidor (0.0.0.0:5000).
