@@ -24,18 +24,17 @@ This repository contains the reference implementation of the hybrid architecture
    - [5.2 TPM support on Linux host](#52-tpm-support-on-linux-host)
    - [5.3 SGX support on Linux host](#53-sgx-support-on-linux-host)
    - [5.4 TDX support on Linux host](#54-tdx-support-on-linux-host)
-6. [Prototype Modules](#6-prototype-modules)
-   - [6.1 HOTP/HMAC (hotp/)](#61-hotphmac-hotp)
-   - [6.2 Vault + TPM Auto-Unseal (vault-tpm/)](#62-vault--tpm-auto-unseal-vault-tpm)
-   - [6.3 IoT Client with TPM (iot-tpm/)](#63-iot-client-with-tpm-iot-tpm)
-   - [6.4 ZTNA with OpenZiti and Keycloak (ztna/)](#64-ztna-with-openziti-and-keycloak-ztna)
-   - [6.5 Web Proxy (proxy-web/)](#65-web-proxy-proxy-web)
-   - [6.6 Adversarial Simulation with LLM (pentest/)](#66-adversarial-simulation-with-llm-pentest)
-7. [Logical Architecture of the nIA Flow](#7-logical-architecture-of-the-nia-flow)
-8. [Experimental Results](#8-experimental-results)
-9. [Roadmap](#9-roadmap)
-10. [License](#10-license)
-11. [Authors](#11-authors)
+6. [Deployment Topology (PPGIA96 / PPGIA95)](#6-deployment-topology-ppgia96--ppgia95)
+7. [Prototype Modules](#7-prototype-modules)
+   - [7.1 Vault + TPM Auto-Unseal (vault-tpm/)](#71-vault--tpm-auto-unseal-vault-tpm)
+   - [7.2 IoT Agent with TPM + TOTP (iot-tpm/)](#72-iot-agent-with-tpm--totp-iot-tpm)
+   - [7.3 ZTNA with Twingate Connector (ztna/)](#73-ztna-with-twingate-connector-ztna)
+   - [7.4 Adversarial Simulation with LLM (pentest/)](#74-adversarial-simulation-with-llm-pentest)
+8. [Logical Architecture of the nIA Flow](#8-logical-architecture-of-the-nia-flow)
+9. [Experimental Results](#9-experimental-results)
+10. [Roadmap](#10-roadmap)
+11. [License](#11-license)
+12. [Authors](#12-authors)
 
 ---
 
@@ -43,7 +42,7 @@ This repository contains the reference implementation of the hybrid architecture
 
 The architecture rests on the premise that software-only security is insufficient for Non-Interactive Authentication (nIA) environments. By anchoring the HashiCorp Vault master key inside a **TPM 2.0** and delegating HMAC computation to hardware, cryptographic keys **never leave the silicon**, even under full operating-system compromise (MITRE ATT&CK T1003).
 
-The network layer implements **ZTNA** via OpenZiti or Twingate so that HOTP-obfuscated credentials cannot be reused outside their strict context, neutralizing lateral movement (T1021).
+The network layer implements **ZTNA** via a **Twingate Connector** (deployed on-premises with Docker) so that TOTP credentials cannot be reused outside their strict network context, neutralizing lateral movement (T1021).
 
 **Measured overhead:** ~75 ms per complete nIA transaction; **Vault RTO** reduced from ~3 minutes (manual unseal) to ~300 ms (TPM auto-unseal).
 
@@ -70,8 +69,8 @@ The network layer implements **ZTNA** via OpenZiti or Twingate so that HOTP-obfu
 
 ### Zero Trust Connectivity (ZTNA)
 
-- **Invisible network:** OpenZiti (embedded SDK, no open ports) or Twingate (managed).
-- **Continuous posture validation:** the ZTNA gateway verifies identity, device health, and location before accepting the HOTP.
+- **Invisible network:** a Twingate Connector makes only outbound connections — no inbound ports are opened on the production server.
+- **Continuous posture validation:** the ZTNA layer verifies identity, device health, and location before the TOTP request ever reaches the IoT server.
 - **Micro-segmentation:** invalidates sessions on context change (IP, device), blocking pivoting.
 
 ### Hardware-Anchored HOTP Authentication
@@ -98,10 +97,6 @@ HOTP(K, C) = Truncate(HMAC-SHA-1_TPM(K, C))
 
 ```
 app-tpm/
-├── hotp/               # HOTP/TOTP client-server prototype (Layer 2)
-│   ├── Client/         # Python client with pyotp
-│   └── Server/         # FastAPI server with TOTP verification
-│
 ├── vault-tpm/          # Vault + auto-unseal via TPM (Layer 1 + 2)
 │   ├── vault-init/         # Initializer: encrypts unseal keys with TPM
 │   ├── tpm-validator/      # Health check: TPM, .enc files, and Vault
@@ -112,43 +107,43 @@ app-tpm/
 │   ├── system_status.sh
 │   └── test_tpm_integration.sh
 │
-├── iot-tpm/            # nIA agent for IoT with TPM verification (Layer 1)
+├── iot-tpm/            # nIA agent for IoT: random TOTP seed sealed in TPM (Layer 1)
 │   ├── client-iot/
-│   │   ├── client_rest_api/     # REST client + pyotp + TPM validation
-│   │   │   ├── app/
-│   │   │   │   └── certs/
-│   │   │   │       └── gerar_certificados.py
-│   │   │   ├── client_iot.py
-│   │   │   └── requirements.txt
-│   │   └── client_mqtt/         # MQTT client for low-bandwidth IoT
-│   │       ├── Dockerfile
-│   │       ├── Dockerfile.arm64
-│   │       ├── client_mqtt.py
-│   │       ├── docker-compose.yml
-│   │       └── requirements.txt
-│   ├── server/
-│   │   ├── gerar_certificados.py
-│   │   ├── server_rest_api/
-│   │   │   ├── main.py
-│   │   │   ├── server_rest_api.py
+│   │   ├── client_rest_api/          # REST client + pyotp + TPM
+│   │   │   ├── app/certs/gerar_certificados.py
+│   │   │   ├── scripts/init_device.sh   # generate seed → seal in TPM → register in Vault
+│   │   │   ├── client_iot.py            # recovers the seed from the TPM at runtime
+│   │   │   ├── Dockerfile / Dockerfile.arm64
 │   │   │   ├── docker-compose.yml
+│   │   │   ├── .env.example
 │   │   │   └── requirements.txt
-│   │   └── server_mqtt/
-│   │       ├── Dockerfile
+│   │   └── client_mqtt/              # MQTT client for low-bandwidth IoT
+│   │       ├── scripts/init_device.sh
+│   │       ├── client_mqtt.py
+│   │       ├── Dockerfile / Dockerfile.arm64
 │   │       ├── docker-compose.yml
-│   │       ├── mosquitto.conf
-│   │       ├── server_mqtt.py
+│   │       ├── .env.example
 │   │       └── requirements.txt
-│   └── (per-protocol clients/servers, see iot-tpm/README.md)
+│   └── server/
+│       ├── gerar_certificados.py
+│       ├── server_rest_api/          # FastAPI /login + /verify (reads seed from Vault)
+│       │   ├── server_rest_api.py
+│       │   ├── Dockerfile
+│       │   ├── docker-compose.yml
+│       │   ├── .env.example
+│       │   └── requirements.txt
+│       └── server_mqtt/              # MQTT subscriber (validates TOTP from Vault)
+│           ├── server_mqtt.py
+│           ├── mosquitto.conf
+│           ├── Dockerfile
+│           ├── docker-compose.yml
+│           ├── .env.example
+│           └── requirements.txt
 │
-├── ztna/               # ZTNA PoC with OpenZiti + Keycloak (Layer 3)
-│   ├── docker-compose.yml
-│   ├── check_poc.sh
-│   ├── backup/              # Previous compose variants
-│   └── openziti/
-│       └── docker-compose-openziti.yml
-│
-├── proxy-web/          # Demo web proxy with dashboard
+├── ztna/               # ZTNA via Twingate Connector — on-premises Docker (Layer 3)
+│   ├── docker-compose.yml   # twingate/connector:1
+│   ├── .env.example         # TWINGATE_NETWORK / ACCESS / REFRESH tokens
+│   └── README.md            # deploy + two-server topology (PPGIA96/PPGIA95)
 │
 ├── pentest/            # Adversarial simulation with LLM (Article Section VI.A)
 │   ├── pentest.py      # Basic orchestrator (Nmap + OpenVAS)
@@ -157,8 +152,6 @@ app-tpm/
 │
 └── web-app/            # Integrated demonstration application
 ```
-
-> **Note on `hotp/antigos/`:** a `hotp/antigos/` subdirectory (containing earlier development iterations) is referenced in the article but could not be confirmed in the current API tree; it may have been removed or not yet pushed.
 
 ## 4. Technologies Used
 
@@ -169,9 +162,8 @@ app-tpm/
 | Confidential VM | Intel TDX + vTPM | Sapphire Rapids+ |
 | TPM SW Stack | tpm2-tss, tpm2-tools, tpm2-pytss | TCG-compliant |
 | Secret Management | HashiCorp Vault (auto-unseal PKCS#11) | OSS |
-| ZTNA | OpenZiti (Apache 2.0), Twingate, NetBird | — |
-| IdP / MFA | Keycloak + Entra ID (OIDC/SAML) | — |
-| nIA Authentication | HOTP (RFC 4226), HMAC (RFC 2104) | — |
+| ZTNA | Twingate Connector (on-premises, Docker) | `twingate/connector:1` |
+| nIA Authentication | TOTP (RFC 6238), HMAC (RFC 2104) | `pyotp` |
 | Infrastructure | Docker, Docker Compose, Terraform | — |
 | Language | Python 3.10+, Shell Script | — |
 | Adversarial Simulation | Llama 3.x via Ollama / Google Gemini | Section VI.A |
@@ -193,8 +185,8 @@ cd app-tpm
 python -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies for a specific module (e.g. hotp/Client)
-pip install -r hotp/Client/requirements.txt
+# Install dependencies for a specific module (e.g. the REST IoT client)
+pip install -r iot-tpm/client-iot/client_rest_api/requirements.txt
 
 # To deactivate the virtual environment
 deactivate
@@ -410,33 +402,46 @@ sudo dmesg | grep -i tdx
 ls -l /dev/tdx_guest   # should exist as a char device
 ```
 
-## 6. Prototype Modules
+## 6. Deployment Topology (PPGIA96 / PPGIA95)
 
-### 6.1 HOTP/HMAC (hotp/)
+The reference deployment uses **two virtual servers**. Production services run on
+**PPGIA96**; **PPGIA95** is used for security testing and for running an IoT
+instance for validation. All traffic between the two servers is mediated by the
+**Twingate Connector** (ZTNA), so the production endpoints expose **no inbound
+ports**.
 
-Reference implementation of the HOTP/TOTP client-server pipeline (Layer 2 of the article).
+```
+                         Twingate Cloud (Controller + Relays)
+                                       ▲  (outbound only)
+                                       │
+┌──────────────────────────────────────────────────────────┐
+│  PPGIA96  (production)                                     │
+│   ┌────────────────┐  ┌───────────────┐  ┌─────────────┐  │
+│   │ Vault          │  │ IoT server    │  │ Twingate    │  │
+│   │ (vault-tpm)    │◄─┤ (iot-tpm)     │  │ Connector   │  │
+│   │ :8200          │  │ REST :5000 /  │  │ (docker)    │  │
+│   │ TOTP seeds     │  │ MQTT :8883    │  │  ztna/      │  │
+│   └────────────────┘  └───────────────┘  └─────────────┘  │
+└──────────────────────────────────────────────────────────┘
 
-```bash
-cd hotp
-
-# Start the server (FastAPI, port 5000)
-python Server/server.py
-# The GET /setup endpoint returns the dynamic OTP_SECRET for synchronization
-
-# In another terminal, obtain the secret and configure the client
-# Edit hotp/Client/client.py: OTP_SECRET = "<value from /setup>"
-python Client/client.py
+┌──────────────────────────────────────────────────────────┐
+│  PPGIA95  (testing / validation)                          │
+│   ┌──────────────────────┐  ┌──────────────────────────┐  │
+│   │ Security testing     │  │ IoT client/server for     │  │
+│   │ (pentest/)           │  │ validation (iot-tpm)      │  │
+│   └──────────────────────┘  └──────────────────────────┘  │
+│   Reaches PPGIA96 resources through Twingate (ZTNA).      │
+└──────────────────────────────────────────────────────────┘
 ```
 
-> **Security note:** In production, replace `FIXED_USER`, `FIXED_PASS`, and `OTP_SECRET` with environment variables. The article's HOTP is delegated to the TPM; the current server uses `pyotp` as a baseline for hardware-free testing.
+| Server | Role | Components |
+|---|---|---|
+| **PPGIA96** | Production | Vault (`vault-tpm`, `:8200`), IoT server (`iot-tpm`, REST `:5000` / MQTT `:8883`), Twingate Connector (`ztna/`) |
+| **PPGIA95** | Testing / validation | Security testing (`pentest/`) and an IoT client/server for validation (`iot-tpm`), reaching PPGIA96 via Twingate |
 
-**Flow:**
+## 7. Prototype Modules
 
-1. Client sends `POST /login` with credentials → receives `session_token`
-2. Every 60 s: client generates TOTP and sends `POST /verify` with token + OTP
-3. If OTP is invalid, the session is terminated immediately
-
-### 6.2 Vault + TPM Auto-Unseal (vault-tpm/)
+### 7.1 Vault + TPM Auto-Unseal (vault-tpm/)
 
 Implements the **Hardware Auto-Unseal** described in Section V of the article.
 
@@ -461,7 +466,7 @@ docker-compose up -d
 
 > **Note:** In dev mode (`VAULT_DEV_ROOT_TOKEN_ID=root`), the default token is `root`. In production, remove dev mode and use TPM-only auto-unseal.
 
-### 6.3 IoT Client with TPM (iot-tpm/)
+### 7.2 IoT Agent with TPM + TOTP (iot-tpm/)
 
 nIA agent for IoT devices (Raspberry Pi 4/5, ARM64 Yocto) as described in Section VI.B of the article.
 
@@ -495,52 +500,33 @@ python server/server_mqtt/server_mqtt.py
 
 > The IoT client verifies the TPM via `tpm2_getrandom` before authenticating. If the TPM is not operational, authentication is aborted — the expected behavior under the two-channel model (Section VI.D). The per-device TOTP secret is **sealed in the client's TPM** (provisioned by `scripts/init_device.sh`) and **registered in the server's Vault**; the client unseals it into RAM at startup and authenticates via time-based OTP over REST/MQTT.
 
-### 6.4 ZTNA with OpenZiti and Keycloak (ztna/)
+### 7.3 ZTNA with Twingate Connector (ztna/)
 
-PoC for Layer 3 (Network Enforcement) of the article, validating the replacement of VPN with identity-based ZTNA.
+Layer 3 (Network Enforcement) of the article, deployed as a **Twingate Connector
+on-premises via Docker** (equivalent to *Deploy Connector → On-premises → Docker*
+in the Twingate Admin Console). The Connector runs on **PPGIA96** and publishes
+the Vault and the IoT server as Twingate Resources — no inbound ports are opened.
 
 ```bash
 cd ztna
 
-# 1. Create shared network
-docker network create ziti-shared-net
+# 1. Generate the Connector tokens in the Twingate Admin Console:
+#    Network → Connectors → Deploy Connector → On-premises → Docker
 
-# 2. Configure .env (copy and adjust)
-cp .env.example .env   # create if it does not exist
-# Set: ZITI_PWD, ZITI_CTRL_EDGE_ADVERTISED_ADDRESS, etc.
+# 2. Configure .env with your network name and the tokens
+cp .env.example .env
+#    TWINGATE_NETWORK / TWINGATE_ACCESS_TOKEN / TWINGATE_REFRESH_TOKEN
 
-# 3. Bring up layers in order
-docker-compose -f backup/docker-compose-keycloak.yml up -d    # IdP
-docker-compose -f openziti/docker-compose-openziti.yml up -d  # ZTNA
-
-# 4. Access management consoles
-# https://<ip>:8444  → ZAC (Ziti Admin Console)
-# http://<ip>:8080   → Keycloak
+# 3. Bring up the Connector
+docker compose up -d
+docker compose logs -f twingate-connector   # expect "Connected"
 ```
 
-**Auto-enrollment for scale:**
+> **Dedicated README:** see [`ztna/README.md`](./ztna/README.md) for the full
+> deploy procedure, the two-server topology, and how to publish the Vault and
+> IoT server as Twingate Resources.
 
-```bash
-docker exec -it ziti-controller ziti edge create ext-jwt-signer "keycloak-ztna" \
-  --claims-property "email" \
-  --issuer "http://localhost:8080/realms/ziti-realm" \
-  --jwks-endpoint "http://keycloak:8080/realms/ziti-realm/protocol/openid-connect/certs" \
-  --external-id-claim "email" \
-  --auto-enrollment-enabled
-```
-
-### 6.5 Web Proxy (proxy-web/)
-
-Demonstration dashboard that aggregates status from all architecture components.
-
-```bash
-cd proxy-web
-docker-compose up -d
-# Access: http://localhost:<configured port>
-./deploy.sh   # for zero-downtime updates
-```
-
-### 6.6 Adversarial Simulation with LLM (pentest/)
+### 7.4 Adversarial Simulation with LLM (pentest/)
 
 Autonomous red-team pipeline described in Section VI.A of the article, using local Llama 3.x (via Ollama) or Google Gemini.
 
@@ -574,7 +560,7 @@ python pentestv3.py
 
 > **Legal notice:** This software is intended exclusively for **authorized security audits** and **academic research**. Use against targets without explicit permission is illegal. The authors accept no responsibility for misuse.
 
-## 7. Logical Architecture of the nIA Flow
+## 8. Logical Architecture of the nIA Flow
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -593,7 +579,7 @@ python pentestv3.py
 │                          └──────────┬──────────┘                │
 │                                     │ Obfuscated Payload         │
 │  ┌──────────────────────────────────▼──────────────────────────┐│
-│  │              ZTNA Gateway (OpenZiti / Twingate)              ││
+│  │              ZTNA Gateway (Twingate Connector)              ││
 │  │   Validates: identity + posture + location + HOTP           ││
 │  └──────────────────────────────────┬───────────────────────────┘│
 │                                     │ TLS Tunnel + ZTNA          │
@@ -616,7 +602,7 @@ Credential lifecycle:
 4. **ZTNA verification:** device posture + HOTP validated simultaneously.
 5. **Transaction:** credential travels obfuscated over TLS + ZTNA tunnel; only Hub Services de-obfuscates it.
 
-## 8. Experimental Results
+## 9. Experimental Results
 
 Full evaluation details are available in Section VI of the article.
 
@@ -641,18 +627,18 @@ Full evaluation details are available in Section VI of the article.
 
 > Average bypass rate on pure software architecture: **18.4%**. On the hybrid architecture: **0%** across 500 scenarios.
 
-## 9. Roadmap
+## 10. Roadmap
 
 * [ ] **Post-Quantum TPM:** Evaluate CRYSTALS-Dilithium and SPHINCS+ in TPM 2.0 NV indices for long-lifecycle IoT deployments.
 * [ ] **Federated LLM Red-Team:** Distribute adversarial simulation across multiple local models for consensus-based detection.
 * [ ] **TDX Cross-Cloud Attestation:** Standardize vTPM attestation across AWS NitroTPM, Azure vTPM, and GCP vTPM.
 * [ ] **Full Terraform integration:** IaC module with `standard | high | critical` labels for automatic protection-tier selection.
 
-## 10. License
+## 11. License
 
 This project is licensed under the [MIT License](./LICENSE).
 
-## 11. Authors
+## 12. Authors
 
 Developed by researchers from the Graduate Program in Computer Science (PPGIa) — PUCPR, Brazil.
 

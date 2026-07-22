@@ -1,5 +1,0 @@
-flask
-authlib
-requests
-pyOpenSSL
-gunicorn

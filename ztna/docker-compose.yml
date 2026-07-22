@@ -1,62 +1,42 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Twingate Connector — deploy on-premises via Docker (Camada 3 / ZTNA)
+#
+# Equivalente ao "Deploy Connector → On-premises → Docker" do Admin Console do
+# Twingate. Roda no servidor PPGIA96, ao lado do Vault (vault-tpm) e do servidor
+# IoT (iot-tpm), publicando esses recursos internos sem abrir portas de entrada.
+#
+# Tokens: gerados no Admin Console (Network → Connectors → Deploy → Docker).
+# Copie ztna/.env.example para ztna/.env e preencha antes de subir.
+#
+#   cd app-tpm/ztna/
+#   cp .env.example .env      # preencha TWINGATE_NETWORK / ACCESS / REFRESH
+#   docker compose up -d
+# ─────────────────────────────────────────────────────────────────────────────
 services:
-  # --- BANCO DE DADOS (KEYCLOAK) ---
-  keycloak-db:
-    image: postgres:15
-    container_name: keycloak-db
+  twingate-connector:
+    image: twingate/connector:1
+    container_name: twingate-connector-ppgia96
+    restart: unless-stopped
+    pull_policy: always
+    # Necessário para o Connector medir latência (ICMP) até os recursos internos.
+    sysctls:
+      net.ipv4.ping_group_range: "0 2147483647"
     environment:
-      POSTGRES_DB: keycloak
-      POSTGRES_USER: keycloak
-      POSTGRES_PASSWORD: password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  # --- PROVEDOR DE IDENTIDADE (IDP) ---
-  keycloak:
-    image: quay.io/keycloak/keycloak:latest
-    container_name: keycloak
-    command: start-dev
-    depends_on:
-      - keycloak-db
-    ports:
-      - "8080:8080"
-      - "8443:8443"
-    environment:
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
-      KC_DB_USERNAME: keycloak
-      KC_DB_PASSWORD: password
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin_pass
-      KC_HOSTNAME: localhost
-
-  # --- OPENZITI CONTROLLER ---
-  ziti-controller:
-    image: openziti/quickstart:latest
-    container_name: ziti-controller
-    ports:
-      - "1280:1280" # API do Plano de Controle
-      - "8444:8443" # Console ZAC (HTTPS)
-    environment:
-      - ZITI_CTRL_ADVERTISED_ADDRESS=localhost
-      - ZITI_CTRL_PORT=1280
-      - ZITI_USER=admin
-      - ZITI_PWD=password
-    volumes:
-      - ziti_data:/var/openziti
-
-  # --- OPENZITI EDGE ROUTER ---
-  ziti-edge-router:
-    image: openziti/quickstart:latest
-    container_name: ziti-edge-router
-    depends_on:
-      - ziti-controller
-    environment:
-      - ZITI_CTRL_ADVERTISED_ADDRESS=ziti-controller
-      - ZITI_CTRL_PORT=1280
-    command: /var/openziti/scripts/run-router.sh edge-router
-    ports:
-      - "3022:3022"
-
-volumes:
-  postgres_data:
-  ziti_data:
+      # Nome da sua rede Twingate (o "networkname" em networkname.twingate.com).
+      TWINGATE_NETWORK: "${TWINGATE_NETWORK}"
+      # Tokens do Connector (gerados no Admin Console — NÃO versionar).
+      TWINGATE_ACCESS_TOKEN: "${TWINGATE_ACCESS_TOKEN}"
+      TWINGATE_REFRESH_TOKEN: "${TWINGATE_REFRESH_TOKEN}"
+      # Rótulos informativos exibidos no Admin Console.
+      TWINGATE_LABEL_HOSTNAME: "${TWINGATE_LABEL_HOSTNAME:-ppgia96}"
+      TWINGATE_LABEL_DEPLOYED_BY: "docker-compose"
+      # Formato de timestamp dos logs (2 = ISO 8601).
+      TWINGATE_TIMESTAMP_FORMAT: "2"
+    # Watchtower (opcional) pode atualizar o Connector automaticamente.
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
