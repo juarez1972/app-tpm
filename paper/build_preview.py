@@ -217,8 +217,8 @@ story.append(Paragraph("A Hybrid Zero Trust Architecture for Non-Interactive "
     "Authentication: Integrating Hardware Trust Anchors with Software-Defined "
     "Secret Management in Infrastructure as Code", title))
 story.append(Spacer(1,6))
-story.append(Paragraph("Juliano S. Langaro, Altair O. Santin, Eduardo K. Viegas, "
-    "Fellipe M. Veiga, and Juarez Oliveira", authors))
+story.append(Paragraph("Juarez de Oliveira, Juliano S. Langaro, Fellipe M. Veiga, "
+    "Altair O. Santin, and Eduardo K. Viegas", authors))
 story.append(Paragraph("<font size=8><i>Graduate Program in Computer Science (PPGIa), "
     "PUCPR, Curitiba, Brazil</i></font>", S("aff", fontSize=8, alignment=TA_CENTER, leading=10)))
 story.append(Spacer(1,8))
