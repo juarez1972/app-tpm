@@ -1,42 +1,62 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Twingate Connector — deploy on-premises via Docker (Camada 3 / ZTNA)
-#
-# Equivalente ao "Deploy Connector → On-premises → Docker" do Admin Console do
-# Twingate. Roda no servidor PPGIA96, ao lado do Vault (vault-tpm) e do servidor
-# IoT (iot-tpm), publicando esses recursos internos sem abrir portas de entrada.
-#
-# Tokens: gerados no Admin Console (Network → Connectors → Deploy → Docker).
-# Copie ztna/.env.example para ztna/.env e preencha antes de subir.
-#
-#   cd app-tpm/ztna/
-#   cp .env.example .env      # preencha TWINGATE_NETWORK / ACCESS / REFRESH
-#   docker compose up -d
-# ─────────────────────────────────────────────────────────────────────────────
 services:
+
   twingate-connector:
-    image: twingate/connector:1
-    container_name: twingate-connector-ppgia96
+    image: twingate/connector:latest
+    container_name: twingate-connector
     restart: unless-stopped
     pull_policy: always
-    # Necessário para o Connector medir latência (ICMP) até os recursos internos.
+
     sysctls:
       net.ipv4.ping_group_range: "0 2147483647"
+      net.ipv6.conf.all.disable_ipv6: 1
+
     environment:
-      # Nome da sua rede Twingate (o "networkname" em networkname.twingate.com).
       TWINGATE_NETWORK: "${TWINGATE_NETWORK}"
-      # Tokens do Connector (gerados no Admin Console — NÃO versionar).
       TWINGATE_ACCESS_TOKEN: "${TWINGATE_ACCESS_TOKEN}"
       TWINGATE_REFRESH_TOKEN: "${TWINGATE_REFRESH_TOKEN}"
-      # Rótulos informativos exibidos no Admin Console.
-      TWINGATE_LABEL_HOSTNAME: "${TWINGATE_LABEL_HOSTNAME:-ppgia96}"
+      TWINGATE_LABEL_HOSTNAME: "${TWINGATE_LABEL_HOSTNAME:-ubuntulocal}"
       TWINGATE_LABEL_DEPLOYED_BY: "docker-compose"
-      # Formato de timestamp dos logs (2 = ISO 8601).
       TWINGATE_TIMESTAMP_FORMAT: "2"
-    # Watchtower (opcional) pode atualizar o Connector automaticamente.
+      TWINGATE_LOG_LEVEL: "7"
+
     labels:
       com.centurylinklabs.watchtower.enable: "true"
+
+    networks:
+      - twingate_net
+
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+  twingate-client:
+    image: twingate/client:latest
+    container_name: twingate-headless-client
+    restart: unless-stopped
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    environment:
+      TWINGATE_LOG_LEVEL: "debug"
+      TWINGATE_DNS: "1.1.1.1,8.8.8.8"
+    volumes:
+      - ./service_key.json:/etc/twingate/service_key.json:ro
+    networks: 
+      - twingate_net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  twingate_net:
+    name: twingate-internal-net
+    driver: bridge
